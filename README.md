@@ -1,6 +1,10 @@
 # takopi
 
-A personal AI assistant (_early preview_)
+A personal AI assistant
+
+## Disclaimer
+
+This project is in early development and may contain bugs, incomplete features, and breaking changes. Use at your own risk.
 
 ## Features
 
