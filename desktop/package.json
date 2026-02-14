@@ -1,0 +1,9 @@
+{
+  "name": "takopi-desktop",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "start": "electron ."
+  }
+}

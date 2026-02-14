@@ -1,0 +1,52 @@
+@import "./tailwind.css";
+
+@utility app-drag-region {
+  -webkit-app-region: drag;
+}
+
+@utility app-drag-region-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@layer base {
+  p,
+  a,
+  button,
+  select,
+  input,
+  textarea,
+  [role="button"],
+  [role="link"] {
+    @apply app-drag-region-no-drag;
+  }
+
+  body {
+    @apply antialiased;
+  }
+
+  .shine-text {
+    color: transparent;
+    background-clip: text !important;
+    animation: shine 3s linear infinite;
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.85), #f000) -200% 50% / 200% 100%
+        no-repeat,
+      #000;
+  }
+
+  .dark .shine-text {
+    background:
+      radial-gradient(circle at center, rgb(24 24 27 / 85%), transparent) -200% 50% / 200% 100%
+        no-repeat,
+      #f4f4f5;
+  }
+
+  @keyframes shine {
+    0% {
+      background-position: 200% 0%;
+    }
+    100% {
+      background-position: -200% 0%;
+    }
+  }
+}
