@@ -116,24 +116,42 @@ async function loadSkillsFromDir(dir: string): Promise<Skill[]> {
   }
 }
 
+function getWorkspaceSkillDirs(): string[] {
+  const cwd = process.cwd()
+  return [join(cwd, ".claude", "skills"), join(cwd, ".agents", "skills")]
+}
+
 /**
  * Load all skills from both ~/.claude/skills and ~/.takopi/skills.
- * Skills in ~/.takopi/skills take priority over ~/.claude/skills when names collide.
+ * Priority order (low -> high):
+ * - ~/.claude/skills
+ * - ~/.takopi/skills
+ * - <workspace>/.claude/skills
+ * - <workspace>/.agents/skills
  */
 export async function loadSkills(): Promise<Skill[]> {
   const takopiSkillsDir = getTakopiSkillsDir()
   const claudeSkillsDir = getClaudeSkillsDir()
-  const [claudeSkills, takopiSkills] = await Promise.all([
+  const [workspaceClaudeSkillsDir, workspaceAgentsSkillsDir] = getWorkspaceSkillDirs()
+  const [claudeSkills, takopiSkills, workspaceClaudeSkills, workspaceAgentsSkills] = await Promise.all([
     loadSkillsFromDir(claudeSkillsDir),
-    loadSkillsFromDir(takopiSkillsDir)
+    loadSkillsFromDir(takopiSkillsDir),
+    loadSkillsFromDir(workspaceClaudeSkillsDir),
+    loadSkillsFromDir(workspaceAgentsSkillsDir)
   ])
 
-  // takopi skills override claude skills by name
+  // Later directories override earlier ones by skill name
   const skillsByName = new Map<string, Skill>()
   for (const skill of claudeSkills) {
     skillsByName.set(skill.name, skill)
   }
   for (const skill of takopiSkills) {
+    skillsByName.set(skill.name, skill)
+  }
+  for (const skill of workspaceClaudeSkills) {
+    skillsByName.set(skill.name, skill)
+  }
+  for (const skill of workspaceAgentsSkills) {
     skillsByName.set(skill.name, skill)
   }
 
@@ -240,7 +258,7 @@ export function createSkillTools(skills: Skill[]) {
  * Get the directories where skills are loaded from
  */
 export function getSkillsDirectories(): string[] {
-  return [getTakopiSkillsDir(), getClaudeSkillsDir()]
+  return [getClaudeSkillsDir(), getTakopiSkillsDir(), ...getWorkspaceSkillDirs()]
 }
 
 /**
@@ -254,7 +272,7 @@ export function getSkillNames(skills: Skill[]): string[] {
  * Check if any skills directory exists
  */
 export function skillsDirectoryExists(): boolean {
-  return existsSync(getTakopiSkillsDir()) || existsSync(getClaudeSkillsDir())
+  return getSkillsDirectories().some((dir) => existsSync(dir))
 }
 
 /**

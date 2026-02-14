@@ -4,14 +4,16 @@ Skills are plug-in capabilities that extend what an agent can do. Each skill is 
 
 ## Skill Directories
 
-Skills are loaded from two locations:
+Skills are loaded from four locations:
 
-| Directory           | Priority                                                        |
-| ------------------- | --------------------------------------------------------------- |
-| `~/.takopi/skills/` | **High** — overrides same-named skills from `~/.claude/skills/` |
-| `~/.claude/skills/` | Low — fallback / shared with Claude Code                        |
+| Directory                    | Priority                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `~/.claude/skills/`          | Lowest — fallback / shared with Claude Code                                      |
+| `~/.takopi/skills/`          | Overrides same-named skills from `~/.claude/skills/`                             |
+| `<workspace>/.claude/skills/` | Overrides same-named skills from home-level directories                          |
+| `<workspace>/.agents/skills/` | Highest — overrides same-named skills from all other directories                 |
 
-When both directories contain a skill with the same `name`, the one in `~/.takopi/skills/` wins.
+When multiple directories contain a skill with the same `name`, the one from the highest-priority directory wins.
 
 ```
 ~/.takopi/skills/           # takopi-specific (high priority)
@@ -34,10 +36,10 @@ See the [Agent Skills spec](https://agentskills.io/home) for the `SKILL.md` form
 
 ## How Skills Load
 
-1. On every chat request, `loadSkills()` scans both `~/.takopi/skills/` and `~/.claude/skills/` in parallel
+1. On every chat request, `loadSkills()` scans all configured skill directories in parallel
 2. Each subdirectory is checked for a `SKILL.md` file
 3. YAML frontmatter is parsed to extract metadata; the markdown body becomes the skill content
-4. Skills are merged by name — `~/.takopi/skills/` takes priority
+4. Skills are merged by name using priority order (workspace local overrides home-level)
 5. The merged set is made available to the agent via system prompt and tools
 
 ## Progressive Disclosure
