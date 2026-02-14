@@ -35,7 +35,13 @@ Automatic transcripts saved when a chat session ends (user clicks "New Chat"). C
 
 ### Workspace Files
 
-`SOUL.md`, `IDENTITY.md`, and `USER.md` define the agent's persona and user context. These are loaded into the system prompt alongside memory.
+`SOUL.md`, `IDENTITY.md`, and `USER.md` are always-on context files loaded into the system prompt. They have different jobs and should not be mixed:
+
+- `SOUL.md` (behavior contract): how the agent should think and act. Put stable operating principles here (tone, boundaries, collaboration style, decision defaults).
+- `IDENTITY.md` (character profile): who the agent is. Put name, creature/archetype, voice/vibe, and presentation traits here.
+- `USER.md` (user profile): who the user is to this agent. Put durable user preferences, goals, constraints, and recurring workflow context here.
+
+Use these files for stable guidance, not chat logs. Day-to-day events and conversation history belong in `memory/` files; durable learned facts belong in `MEMORY.md`.
 
 ## Automatic Context Loading
 
@@ -64,13 +70,13 @@ Memory files are indexed in a SQLite database (`memory-index.sqlite`) using [Lib
 
 ### Schema
 
-| Table | Purpose |
-|---|---|
-| `memory_meta` | Stores config like embedding dimension |
-| `memory_files` | Tracks indexed files by path, content hash, and mtime |
-| `memory_chunks` | Stores chunked text with embeddings |
-| `memory_chunks_fts` | FTS5 virtual table for keyword search |
-| `memory_chunks_vec_idx` | Vector index for semantic search |
+| Table                   | Purpose                                               |
+| ----------------------- | ----------------------------------------------------- |
+| `memory_meta`           | Stores config like embedding dimension                |
+| `memory_files`          | Tracks indexed files by path, content hash, and mtime |
+| `memory_chunks`         | Stores chunked text with embeddings                   |
+| `memory_chunks_fts`     | FTS5 virtual table for keyword search                 |
+| `memory_chunks_vec_idx` | Vector index for semantic search                      |
 
 ### Chunking
 
@@ -107,6 +113,7 @@ Agents have two tools for accessing memory:
 Searches indexed memory files for relevant past conversations and context.
 
 **Input:**
+
 - `query` (string) — the search query
 - `maxResults` (number, default 5) — max results to return
 
@@ -117,6 +124,7 @@ Searches indexed memory files for relevant past conversations and context.
 Reads content from a memory file, optionally by line range.
 
 **Input:**
+
 - `path` (string) — relative path to the file (as returned by MemorySearch)
 - `from` (number, optional) — starting line number (1-based)
 - `lines` (number, optional) — number of lines to read
