@@ -371,14 +371,19 @@ const AssistantMessageActions = ({
 const AssistantUsagePopover = ({ message }: { message: ChatMessage }) => {
   const metadata = message.metadata
   if (!metadata) return null
+  const taskTotalCost = Object.values(metadata.taskUsages ?? {}).reduce((sum, usage) => {
+    return sum + usage.totalCost
+  }, 0)
+  const combinedTotalCost = (metadata.mainUsage?.totalCost ?? 0) + taskTotalCost
 
   const hasStats =
     metadata.timeToFirstToken != null ||
     metadata.duration != null ||
-    metadata.inputTokens != null ||
-    metadata.outputTokens != null ||
-    metadata.outputImagesCost != null ||
-    metadata.totalCost != null
+    metadata.mainUsage?.inputTokens != null ||
+    metadata.mainUsage?.outputTokens != null ||
+    metadata.mainUsage?.outputImagesCost != null ||
+    metadata.mainUsage?.totalCost != null ||
+    taskTotalCost > 0
 
   if (!hasStats) return null
 
@@ -409,28 +414,32 @@ const AssistantUsagePopover = ({ message }: { message: ChatMessage }) => {
               <span className="text-zinc-500">{formatDuration(metadata.duration)}</span>
             </div>
           )}
-          {metadata.inputTokens != null && (
+          {metadata.mainUsage?.inputTokens != null && (
             <div className="flex items-center justify-between gap-4">
               <span className="text-zinc-600">Input tokens</span>
-              <span className="text-zinc-500">{formatNumber(metadata.inputTokens)}</span>
+              <span className="text-zinc-500">{formatNumber(metadata.mainUsage.inputTokens)}</span>
             </div>
           )}
-          {metadata.outputTokens != null && (
+          {metadata.mainUsage?.outputTokens != null && (
             <div className="flex items-center justify-between gap-4">
               <span className="text-zinc-600">Output tokens</span>
-              <span className="text-zinc-500">{formatNumber(metadata.outputTokens)}</span>
+              <span className="text-zinc-500">
+                {formatNumber(metadata.mainUsage.outputTokens)}
+              </span>
             </div>
           )}
-          {metadata.outputImagesCost != null && (
+          {metadata.mainUsage?.outputImagesCost != null && (
             <div className="flex items-center justify-between gap-4">
               <span className="text-zinc-600">Output images cost</span>
-              <span className="text-zinc-500">{formatUSD(metadata.outputImagesCost)}</span>
+              <span className="text-zinc-500">
+                {formatUSD(metadata.mainUsage.outputImagesCost)}
+              </span>
             </div>
           )}
-          {metadata.totalCost != null && (
+          {combinedTotalCost > 0 && (
             <div className="flex items-center justify-between gap-4">
               <span className="text-zinc-600">Total cost</span>
-              <span className="text-zinc-500">{formatUSD(metadata.totalCost)}</span>
+              <span className="text-zinc-500">{formatUSD(combinedTotalCost)}</span>
             </div>
           )}
         </div>

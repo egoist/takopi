@@ -2,7 +2,9 @@ import {
   streamText,
   readUIMessageStream,
   stepCountIs,
+  type GeneratedFile,
   type InferUITools,
+  type LanguageModelUsage,
   tool,
   type ToolSet
 } from "ai"
@@ -16,7 +18,7 @@ import { dirname, join, resolve } from "node:path"
 import fs from "node:fs/promises"
 import { existsSync } from "node:fs"
 import dayjs from "dayjs"
-import type { Config } from "@/types/config"
+import type { Config, ModelConfig } from "@/types/config"
 import { openMemoryDB, syncMemoryFiles, searchMemory } from "./memory-index"
 import { createEmbedFn, embedQuery } from "./memory-embeddings"
 import { getModelConfig } from "@/lib/providers"
@@ -52,19 +54,42 @@ export type RequestUserAnswer = (opts: {
   }>
 }) => Promise<QuestionAnswerData | null>
 
+export type UsageUpdateData = {
+  taskToolCallId?: string
+  usage?: LanguageModelUsage
+  providerMetadata?: Record<string, unknown>
+  files?: GeneratedFile[]
+  modelConfig?: ModelConfig
+}
+
+export type UsageUpdateHandler = (data: UsageUpdateData) => void
+
+type CreateAIToolsOptions = {
+  chatId: string
+  agentId: string
+  chatSession: ChatSession
+  signal: AbortSignal
+  skills?: Skill[]
+  requestConfirmation: RequestConfirmation
+  requestUserAnswer: RequestUserAnswer
+  config: Config
+  onUsageUpdate?: UsageUpdateHandler
+}
+
 /** Tools that require user confirmation before execution */
 export const TOOLS_REQUIRING_CONFIRMATION = ["Bash", "Write", "Edit"] as const
 
-export const createAITools = (
-  chatId: string,
-  agentId: string,
-  chatSession: ChatSession,
-  signal: AbortSignal,
-  skills: Skill[] = [],
-  requestConfirmation: RequestConfirmation,
-  requestUserAnswer: RequestUserAnswer,
-  config: Config
-) => {
+export const createAITools = ({
+  chatId,
+  agentId,
+  chatSession,
+  signal,
+  skills = [],
+  requestConfirmation,
+  requestUserAnswer,
+  config,
+  onUsageUpdate
+}: CreateAIToolsOptions) => {
   const skillTools = createSkillTools(skills)
 
   // Working directory for this agent
@@ -723,7 +748,8 @@ IMPORTANT - Use the correct year in search queries:
             "Maximum number of agentic steps (default 10, max 20). Higher for complex multi-tool tasks."
           )
       }),
-      execute: async function* ({ prompt: task, subagent_type, maxSteps: rawMaxSteps }) {
+      execute: async function* ({ prompt: task, subagent_type, maxSteps: rawMaxSteps }, context) {
+        const taskToolCallId = context.toolCallId
         signal.throwIfAborted()
 
         const maxSteps = Math.min(Math.max(rawMaxSteps ?? 10, 1), 20)
@@ -788,7 +814,16 @@ IMPORTANT - Use the correct year in search queries:
           tools: baseTools,
           activeTools,
           stopWhen: stepCountIs(maxSteps),
-          abortSignal: signal
+          abortSignal: signal,
+          onStepFinish({ usage, providerMetadata, files }) {
+            onUsageUpdate?.({
+              taskToolCallId,
+              usage,
+              providerMetadata: providerMetadata as Record<string, unknown> | undefined,
+              files,
+              modelConfig: subagentModelConfig
+            })
+          }
         })
 
         let lastMessage: unknown

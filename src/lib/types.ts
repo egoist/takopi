@@ -1,17 +1,13 @@
 import type { ToolUIPart, UIMessage, UIMessagePart } from "ai"
 import { type CustomUITools } from "@/server/lib/ai-tools"
+import type { UsageCalculatorUsage } from "@/lib/ai"
 
 export type CustomUIMessageMetadata = {
   reasoningDurations?: Record<number, number>
   timeToFirstToken?: number
   duration?: number
-  totalCost?: number
-  inputTokens?: number
-  outputTokens?: number
-  outputTextTokens?: number
-  outputImageTokens?: number
-  outputImagesCount?: number
-  outputImagesCost?: number
+  mainUsage?: UsageCalculatorUsage
+  taskUsages?: Record<string, UsageCalculatorUsage>
   stopEarly?:
     | {
         type: "max-steps"

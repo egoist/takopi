@@ -28,12 +28,17 @@ export type AIUsage = {
   totalCost: number
 }
 
+export type UsageCalculatorUsage = AIUsage
+
 export const createUsageCalculator = (model: ModelConfig) => {
   const result = {
     inputTokens: 0,
     outputTextTokens: 0,
     outputImageTokens: 0,
-    outputImagesCount: 0
+    outputImagesCount: 0,
+    inputCost: 0,
+    outputTextCost: 0,
+    outputImagesCost: 0
   }
 
   const MILLION = 1_000_000
@@ -42,11 +47,13 @@ export const createUsageCalculator = (model: ModelConfig) => {
     updateForStep: ({
       usage,
       providerMetadata,
-      files
+      files,
+      modelConfig
     }: {
       usage?: LanguageModelUsage
       providerMetadata?: CustomAIProviderMetadata
       files?: GeneratedFile[]
+      modelConfig?: ModelConfig
     }) => {
       const inputTokens = usage?.inputTokens ?? 0
       const defaultOutputTextTokens = usage?.outputTokens ?? 0
@@ -68,21 +75,25 @@ export const createUsageCalculator = (model: ModelConfig) => {
         }
       }
 
-      const outputImagesCount = (files ?? []).filter((file) => file.mediaType.startsWith("image/"))
-        .length
+      const outputImagesCount = (files ?? []).filter((file) =>
+        file.mediaType.startsWith("image/")
+      ).length
+      const modelForStep = modelConfig ?? model
+      const inputCostPerMillion = modelForStep.cost?.input ?? 0
+      const outputCostPerMillion = modelForStep.cost?.output ?? 0
 
       result.inputTokens += inputTokens
       result.outputTextTokens += outputTextTokens
       result.outputImageTokens += outputImageTokens
       result.outputImagesCount += outputImagesCount
+      result.inputCost += (inputTokens / MILLION) * inputCostPerMillion
+      result.outputTextCost += (outputTextTokens / MILLION) * outputCostPerMillion
     },
     get usage(): AIUsage {
-      const inputCostPerMillion = model.cost?.input ?? 0
-      const outputCostPerMillion = model.cost?.output ?? 0
-      const outputImagesCost = 0
       const outputTokens = result.outputTextTokens + result.outputImageTokens
-      const inputCost = (result.inputTokens / MILLION) * inputCostPerMillion
-      const outputTextCost = (result.outputTextTokens / MILLION) * outputCostPerMillion
+      const inputCost = result.inputCost
+      const outputTextCost = result.outputTextCost
+      const outputImagesCost = result.outputImagesCost
       const outputCost = outputTextCost + outputImagesCost
       const totalCost = inputCost + outputCost
 

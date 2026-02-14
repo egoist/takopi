@@ -251,18 +251,8 @@ export async function action({ request }: Route.ActionArgs) {
         return answer
       }
 
-      const tools = createAITools(
-        chatId,
-        agentId,
-        chatSession,
-        abortController.signal,
-        skills,
-        requestConfirmation,
-        requestUserAnswer,
-        config
-      )
-      const activeTools = Object.keys(tools) as (keyof typeof tools)[]
       const usageCalculator = createUsageCalculator(model)
+      const taskUsageCalculators: Record<string, ReturnType<typeof createUsageCalculator>> = {}
       const emitMetadata = () => {
         writer.write({
           event: "metadata",
@@ -271,16 +261,43 @@ export async function action({ request }: Route.ActionArgs) {
       }
 
       const updateUsageMetadata = () => {
-        const usage = usageCalculator.usage
-        metadata.totalCost = usage.totalCost
-        metadata.inputTokens = usage.inputTokens
-        metadata.outputTokens = usage.outputTokens
-        metadata.outputTextTokens = usage.outputTextTokens
-        metadata.outputImageTokens = usage.outputImageTokens
-        metadata.outputImagesCount = usage.outputImagesCount
-        metadata.outputImagesCost = usage.outputImagesCost
+        metadata.mainUsage = usageCalculator.usage
         emitMetadata()
       }
+
+      const tools = createAITools({
+        chatId,
+        agentId,
+        chatSession,
+        signal: abortController.signal,
+        skills,
+        requestConfirmation,
+        requestUserAnswer,
+        config,
+        onUsageUpdate: ({ taskToolCallId, usage, providerMetadata, files, modelConfig }) => {
+          if (!taskToolCallId) {
+            return
+          }
+
+          const taskUsageCalculator =
+            taskUsageCalculators[taskToolCallId] ??
+            (taskUsageCalculators[taskToolCallId] = createUsageCalculator(modelConfig ?? model))
+
+          taskUsageCalculator.updateForStep({
+            usage,
+            providerMetadata,
+            files,
+            modelConfig
+          })
+
+          metadata.taskUsages = {
+            ...(metadata.taskUsages ?? {}),
+            [taskToolCallId]: taskUsageCalculator.usage
+          }
+          emitMetadata()
+        }
+      })
+      const activeTools = Object.keys(tools) as (keyof typeof tools)[]
 
       const saveChatState = async () => {
         if (chat) {
