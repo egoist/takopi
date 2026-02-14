@@ -3,13 +3,14 @@ import type { CustomUIMessagePart } from "@/lib/types"
 import { isStaticToolUIPart, isToolUIPart } from "ai"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import { Copy, RefreshCw, Check, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
+import { Copy, RefreshCw, Check, ChevronLeft, ChevronRight, Pencil, BarChart3 } from "lucide-react"
 import { Loader } from "@cloudflare/kumo"
 import { Markdown } from "./markdown"
 import { ReasoningBlock } from "./reasoning-block"
 import { ToolBlock } from "./tool-block"
 import type { CustomUITools } from "@/server/lib/ai-tools"
 import { useUpdateNextMessageIdMutation } from "@/lib/queries"
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
 interface MessageBlockProps {
   chatId: string
@@ -49,6 +50,24 @@ function mergeReasoningParts(
   }
 
   return result
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`
+  return `${(ms / 60_000).toFixed(1)}m`
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat().format(value)
+}
+
+function formatUSD(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 6
+  }).format(value)
 }
 
 export function MessageBlock({
@@ -336,6 +355,8 @@ const AssistantMessageActions = ({
         <RefreshCw className="w-4 h-4" />
       </button>
 
+      <AssistantUsagePopover message={message} />
+
       <AlternativeMessageNav
         chatId={chatId}
         currentMessageIndex={currentMessageIndex}
@@ -344,5 +365,76 @@ const AssistantMessageActions = ({
         updateNextMessageIdMutation={updateNextMessageIdMutation}
       />
     </div>
+  )
+}
+
+const AssistantUsagePopover = ({ message }: { message: ChatMessage }) => {
+  const metadata = message.metadata
+  if (!metadata) return null
+
+  const hasStats =
+    metadata.timeToFirstToken != null ||
+    metadata.duration != null ||
+    metadata.inputTokens != null ||
+    metadata.outputTokens != null ||
+    metadata.outputImagesCost != null ||
+    metadata.totalCost != null
+
+  if (!hasStats) return null
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex items-center p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700"
+            title="Usage"
+          >
+            <BarChart3 className="w-4 h-4" />
+          </button>
+        }
+      />
+      <PopoverContent className="w-64">
+        <div className="flex flex-col gap-2 text-sm">
+          {metadata.timeToFirstToken != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Time to first token</span>
+              <span className="text-zinc-500">{formatDuration(metadata.timeToFirstToken)}</span>
+            </div>
+          )}
+          {metadata.duration != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Total duration</span>
+              <span className="text-zinc-500">{formatDuration(metadata.duration)}</span>
+            </div>
+          )}
+          {metadata.inputTokens != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Input tokens</span>
+              <span className="text-zinc-500">{formatNumber(metadata.inputTokens)}</span>
+            </div>
+          )}
+          {metadata.outputTokens != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Output tokens</span>
+              <span className="text-zinc-500">{formatNumber(metadata.outputTokens)}</span>
+            </div>
+          )}
+          {metadata.outputImagesCost != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Output images cost</span>
+              <span className="text-zinc-500">{formatUSD(metadata.outputImagesCost)}</span>
+            </div>
+          )}
+          {metadata.totalCost != null && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-zinc-600">Total cost</span>
+              <span className="text-zinc-500">{formatUSD(metadata.totalCost)}</span>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

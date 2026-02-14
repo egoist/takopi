@@ -22,6 +22,7 @@ import { processMessages } from "@/server/lib/message"
 import { getAISDKLanguageModel } from "@/server/lib/ai-sdk"
 import { fetchModelsJSONWithCache } from "@/server/lib/fetch-models-json"
 import { getAgentWorkspaceDir } from "@/server/lib/paths"
+import { createUsageCalculator } from "@/lib/ai"
 
 const streamHeaders = {
   "Transfer-Encoding": "chunked",
@@ -30,7 +31,7 @@ const streamHeaders = {
   "Cache-Control": "no-cache"
 }
 
-const MAX_STEPS = 20
+const MAX_STEPS = 40
 
 const ChatBodySchema = z.object({
   messages: z.array(z.custom<ChatMessage>()),
@@ -261,6 +262,25 @@ export async function action({ request }: Route.ActionArgs) {
         config
       )
       const activeTools = Object.keys(tools) as (keyof typeof tools)[]
+      const usageCalculator = createUsageCalculator(model)
+      const emitMetadata = () => {
+        writer.write({
+          event: "metadata",
+          data: JSON.stringify(metadata)
+        })
+      }
+
+      const updateUsageMetadata = () => {
+        const usage = usageCalculator.usage
+        metadata.totalCost = usage.totalCost
+        metadata.inputTokens = usage.inputTokens
+        metadata.outputTokens = usage.outputTokens
+        metadata.outputTextTokens = usage.outputTextTokens
+        metadata.outputImageTokens = usage.outputImageTokens
+        metadata.outputImagesCount = usage.outputImagesCount
+        metadata.outputImagesCost = usage.outputImagesCost
+        emitMetadata()
+      }
 
       const saveChatState = async () => {
         if (chat) {
@@ -292,19 +312,41 @@ export async function action({ request }: Route.ActionArgs) {
         activeTools,
         abortSignal: abortController.signal,
         async onFinish() {
+          updateUsageMetadata()
           await saveChatState()
         },
-        async onStepFinish() {
+        async onStepFinish({ usage, providerMetadata, files }) {
+          usageCalculator.updateForStep({
+            usage,
+            providerMetadata,
+            files
+          })
+          updateUsageMetadata()
           await saveChatState()
         },
         async onAbort() {
+          updateUsageMetadata()
           await saveChatState()
         },
         onError({ error }) {
           console.error("Stream error:", error)
           writer.error(errorHandler(error))
         },
-        stopWhen: stepCountIs(40)
+        stopWhen: [
+          stepCountIs(MAX_STEPS),
+          (ctx) => {
+            if (ctx.steps.length === MAX_STEPS) {
+              metadata.stopEarly = {
+                type: "max-steps",
+                maxSteps: MAX_STEPS
+              }
+
+              return true
+            }
+
+            return false
+          }
+        ]
       })
 
       // Stream using UI message stream for better part handling
@@ -317,10 +359,7 @@ export async function action({ request }: Route.ActionArgs) {
         }
         metadata.duration = Date.now() - startAt
 
-        writer.write({
-          event: "metadata",
-          data: JSON.stringify(metadata)
-        })
+        emitMetadata()
 
         for (const [index, part] of uiMessage.parts.entries()) {
           if (part.type === "reasoning" && !finishedReasoningIndices.has(index)) {
