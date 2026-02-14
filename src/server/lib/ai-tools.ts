@@ -22,7 +22,7 @@ import type { Config, ModelConfig } from "@/types/config"
 import { openMemoryDB, syncMemoryFiles, searchMemory } from "./memory-index"
 import { createEmbedFn, embedQuery } from "./memory-embeddings"
 import { getModelConfig } from "@/lib/providers"
-import { getAISDKLanguageModel } from "./ai-sdk"
+import { getAISDKLanguageModel, getProviderOptions } from "./ai-sdk"
 import { fetchModelsJSONWithCache } from "./fetch-models-json"
 import { getAgentWorkspaceDir } from "./paths"
 
@@ -810,6 +810,7 @@ IMPORTANT - Use the correct year in search queries:
         const result = streamText({
           model: subagentLanguageModel,
           system: subagentSystemPrompt,
+          providerOptions: getProviderOptions(),
           prompt: task,
           tools: baseTools,
           activeTools,

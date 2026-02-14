@@ -34,5 +34,21 @@ export async function fetchModelsJSONWithCache() {
 }
 
 export function getModelsFromModelsJSON(modelsJSON: ModelsJSON, providerType: string) {
+  // include a subset of openai models for the codex provider
+  if (providerType === "codex") {
+    const openAIModels = modelsJSON.openai?.models || {}
+    const filteredModels = Object.fromEntries(
+      Object.entries(openAIModels).filter(
+        ([modelId]) => modelId.includes("codex") || modelId === "gpt-5.2"
+      )
+    )
+
+    if (Object.keys(filteredModels).length > 0) {
+      return filteredModels
+    }
+
+    return {}
+  }
+
   return modelsJSON[providerType]?.models || {}
 }

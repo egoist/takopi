@@ -28,6 +28,14 @@ export interface ProviderConfig {
   type: ProviderType
   baseUrl?: string
   apiKey?: string
+  authType?: "apiKey" | "oauth"
+  oauth?: {
+    provider: "codex" | "openai"
+    accessToken: string
+    refreshToken?: string
+    expiresAt?: number
+    accountId?: string
+  }
   models: ModelConfig[]
 }
 

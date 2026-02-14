@@ -19,7 +19,7 @@ import { streamControllers } from "@/server/lib/redis"
 import { streamContext } from "@/server/lib/stream-context"
 import { getModelConfig } from "@/lib/providers"
 import { processMessages } from "@/server/lib/message"
-import { getAISDKLanguageModel } from "@/server/lib/ai-sdk"
+import { getAISDKLanguageModel, getProviderOptions } from "@/server/lib/ai-sdk"
 import { fetchModelsJSONWithCache } from "@/server/lib/fetch-models-json"
 import { getAgentWorkspaceDir } from "@/server/lib/paths"
 import { createUsageCalculator } from "@/lib/ai"
@@ -298,7 +298,6 @@ export async function action({ request }: Route.ActionArgs) {
         }
       })
       const activeTools = Object.keys(tools) as (keyof typeof tools)[]
-
       const saveChatState = async () => {
         if (chat) {
           chat.updatedAt = Date.now()
@@ -324,6 +323,7 @@ export async function action({ request }: Route.ActionArgs) {
       const result = streamText<AIToolSet>({
         model: sdkLanguageModel,
         system: systemMessages,
+        providerOptions: getProviderOptions(),
         messages: modelMessages,
         tools,
         activeTools,

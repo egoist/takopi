@@ -15,6 +15,7 @@ import { rpcClient } from "@/lib/rpc-client"
 import { PROVIDERS, type ProviderType } from "@/lib/providers"
 import type { ModelConfig } from "@/types/config"
 import { RefreshCw } from "lucide-react"
+import { Loader } from "@cloudflare/kumo"
 
 interface ModelSelectionDialogProps {
   open: boolean
@@ -108,8 +109,8 @@ export function ModelSelectionDialog({
 
         <div className="py-4">
           {isLoading && (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 mr-2" />
+            <div className="flex items-center gap-2 justify-center py-8">
+              <Loader />
               <span>Loading models...</span>
             </div>
           )}

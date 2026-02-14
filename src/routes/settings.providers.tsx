@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { useSearchParams } from "react-router"
-import { debounce } from "perfect-debounce"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,14 +9,46 @@ import {
   DropdownMenuContent,
   DropdownMenuItem
 } from "@/components/ui/dropdown-menu"
-import { Plus, Trash2, ListPlus } from "lucide-react"
-import { PROVIDERS, type ProviderType } from "@/lib/providers"
+import { Plus, Trash2, ListPlus, LogIn, Copy, Check } from "lucide-react"
+import {
+  PROVIDERS,
+  getProviderDefaultBaseUrl,
+  getProviderInfo,
+  isOAuthProvider,
+  type ProviderType
+} from "@/lib/providers"
 import type { ProviderConfig, ModelConfig } from "@/types/config"
 import { ModelSelectionDialog } from "@/components/model-selection-dialog"
 import { useConfigQuery, useUpdateConfigMutation } from "@/lib/queries"
 import { TabbedSettings } from "@/components/tabbed-settings"
 
 type ProviderOption = { value: ProviderConfig["type"]; label: string }
+
+type OpenAIDeviceStartResponse = {
+  sessionId: string
+  verificationUrl: string
+  userCode: string
+  intervalMs: number
+}
+
+type OpenAIDevicePollResponse =
+  | { status: "pending"; intervalMs: number }
+  | {
+      status: "success"
+      token: {
+        accessToken: string
+        refreshToken?: string
+        expiresAt?: number
+        accountId?: string
+      }
+    }
+  | { status: "error"; error: string }
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
 
 function AddProviderMenu({
   options,
@@ -69,6 +100,13 @@ export default function ProvidersSettings() {
     type: ProviderType
     currentModels: ModelConfig[]
   } | null>(null)
+  const [oauthBusyProviderId, setOauthBusyProviderId] = useState<string | null>(null)
+  const [openAIDeviceCode, setOpenAIDeviceCode] = useState<{
+    providerId: string
+    code: string
+    verificationUrl: string
+  } | null>(null)
+  const [copiedDeviceCodeProviderId, setCopiedDeviceCodeProviderId] = useState<string | null>(null)
 
   const providers: ProviderConfig[] = config?.providers || []
 
@@ -77,16 +115,28 @@ export default function ProvidersSettings() {
     label: p.name
   }))
 
-  const debouncedSave = debounce(updateConfigMutation.mutate, 1000)
+  const updateProviderAtIndex = (
+    providerIndex: number,
+    updater: (provider: ProviderConfig) => ProviderConfig
+  ) => {
+    const updatedProviders = providers.map((provider, currentIndex) =>
+      currentIndex === providerIndex ? updater(provider) : provider
+    )
+
+    updateConfigMutation.mutate({
+      providers: updatedProviders
+    })
+  }
 
   const handleAddProvider = (type: ProviderConfig["type"]) => {
-    const providerInfo = PROVIDERS.find((p) => p.type === type)
+    const providerInfo = getProviderInfo(type)
     const newProvider: ProviderConfig = {
       id: `provider-${Date.now()}`,
       name: providerInfo?.name || "",
       type,
       baseUrl: "",
       apiKey: "",
+      authType: isOAuthProvider(type) ? "oauth" : "apiKey",
       models: []
     }
     const updatedProviders = [...providers, newProvider]
@@ -101,13 +151,119 @@ export default function ProvidersSettings() {
     field: keyof ProviderConfig,
     value: string
   ) => {
-    const updatedProviders = providers.map((p, i) =>
-      i === providerIndex ? { ...p, [field]: value } : p
-    )
+    updateProviderAtIndex(providerIndex, (provider) => ({
+      ...provider,
+      [field]: value
+    }))
+  }
 
-    updateConfigMutation.mutate({
-      providers: updatedProviders
-    })
+  const startOpenAIOAuth = async ({
+    providerId,
+    providerIndex
+  }: {
+    providerId: string
+    providerIndex: number
+  }) => {
+    if (oauthBusyProviderId) return
+
+    setOauthBusyProviderId(providerId)
+
+    try {
+      const startResponse = await fetch("/api/openai-oauth/device/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ providerId })
+      })
+
+      if (!startResponse.ok) {
+        const startError = (await startResponse.json()) as { error?: string }
+        throw new Error(startError.error || "Failed to start OpenAI OAuth login.")
+      }
+
+      const startData = (await startResponse.json()) as OpenAIDeviceStartResponse
+      window.open(
+        startData.verificationUrl,
+        "takopi-openai-oauth-device",
+        "popup=yes,width=540,height=700,resizable=yes,scrollbars=yes"
+      )
+      setOpenAIDeviceCode({
+        providerId,
+        code: startData.userCode,
+        verificationUrl: startData.verificationUrl
+      })
+
+      const deadline = Date.now() + 5 * 60 * 1000
+      let pollResult: OpenAIDevicePollResponse | null = null
+      while (Date.now() < deadline) {
+        const pollResponse = await fetch("/api/openai-oauth/device/poll", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ sessionId: startData.sessionId })
+        })
+
+        if (!pollResponse.ok) {
+          const pollError = (await pollResponse.json()) as { error?: string }
+          throw new Error(pollError.error || "Failed to check OpenAI OAuth status.")
+        }
+
+        pollResult = (await pollResponse.json()) as OpenAIDevicePollResponse
+        if (pollResult.status === "pending") {
+          await sleep(startData.intervalMs)
+          continue
+        }
+        break
+      }
+
+      if (!pollResult || pollResult.status === "pending") {
+        throw new Error("Timed out waiting for OpenAI OAuth completion.")
+      }
+
+      if (pollResult.status === "error") {
+        throw new Error(pollResult.error)
+      }
+
+      const accessToken = pollResult.token.accessToken
+
+      updateProviderAtIndex(providerIndex, (provider) => ({
+        ...provider,
+        authType: "oauth",
+        oauth: {
+          provider: "codex",
+          accessToken,
+          refreshToken: pollResult.token.refreshToken,
+          expiresAt: pollResult.token.expiresAt,
+          accountId: pollResult.token.accountId
+        }
+      }))
+      setOpenAIDeviceCode((current) => (current?.providerId === providerId ? null : current))
+    } catch (oauthError) {
+      const message =
+        oauthError instanceof Error ? oauthError.message : "Failed to complete OpenAI OAuth login."
+      window.alert(message)
+      setOpenAIDeviceCode((current) => (current?.providerId === providerId ? null : current))
+    } finally {
+      setOauthBusyProviderId((currentProviderId) =>
+        currentProviderId === providerId ? null : currentProviderId
+      )
+    }
+  }
+
+  const handleCopyDeviceCode = async ({ providerId, code }: { providerId: string; code: string }) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopiedDeviceCodeProviderId(providerId)
+      window.setTimeout(() => {
+        setCopiedDeviceCodeProviderId((currentProviderId) =>
+          currentProviderId === providerId ? null : currentProviderId
+        )
+      }, 1200)
+    } catch {
+      window.alert("Failed to copy code. Please copy it manually.")
+    }
   }
 
   const handleEditId = (providerIndex: number) => {
@@ -179,7 +335,7 @@ export default function ProvidersSettings() {
     if (provider.name && provider.name.trim()) {
       return provider.name
     }
-    const providerInfo = PROVIDERS.find((p) => p.type === provider.type)
+    const providerInfo = getProviderInfo(provider.type)
     const typeName = providerInfo ? providerInfo.name : provider.type
     const index = providers.filter((p) => p.type === provider.type).indexOf(provider) + 1
     const sameTypeCount = providers.filter((p) => p.type === provider.type).length
@@ -248,51 +404,128 @@ export default function ProvidersSettings() {
                     <div className="grid gap-2">
                       <Label>Provider Type</Label>
                       <span>
-                        {PROVIDERS.find((p) => p.type === provider.type)?.name || provider.type}
+                        {getProviderInfo(provider.type)?.name || provider.type}
                       </span>
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor={`${provider.id}-api-key`}>API Key</Label>
-                      <Input
-                        id={`${provider.id}-api-key`}
-                        isPassword
-                        placeholder="Enter API key"
-                        value={provider.apiKey || ""}
-                        onChange={(e) =>
-                          handleProviderChange(providerIndex, "apiKey", e.target.value)
-                        }
-                      />
-                    </div>
+                      <Label>Authentication</Label>
+                      <div className="rounded-md border p-3 space-y-3">
+                        {isOAuthProvider(provider.type) ? (
+                          <>
+                            <p className="text-sm text-muted-foreground">OAuth only</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={oauthBusyProviderId === provider.id}
+                                onClick={() =>
+                                  startOpenAIOAuth({
+                                    providerId: provider.id,
+                                    providerIndex
+                                  })
+                                }
+                              >
+                                <LogIn className="h-4 w-4 mr-1" />
+                                {oauthBusyProviderId === provider.id ? "Signing in..." : "Sign in with ChatGPT"}
+                              </Button>
+                              {provider.oauth && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    updateProviderAtIndex(providerIndex, (currentProvider) => ({
+                                      ...currentProvider,
+                                      oauth: undefined
+                                    }))
+                                  }
+                                >
+                                  Disconnect OAuth
+                                </Button>
+                              )}
+                            </div>
 
-                    <div className="grid gap-2">
-                      <Label htmlFor={`${provider.id}-base-url`}>Base URL (Optional)</Label>
-                      <Input
-                        id={`${provider.id}-base-url`}
-                        type="url"
-                        placeholder={
-                          provider.type === "openai"
-                            ? "https://api.openai.com/v1"
-                            : provider.type === "anthropic"
-                              ? "https://api.anthropic.com/v1"
-                              : provider.type === "deepseek"
-                                ? "https://api.deepseek.com/v1"
-                                : provider.type === "openrouter"
-                                  ? "https://openrouter.ai/api/v1"
-                                  : provider.type === "opencode"
-                                    ? "https://api.opencode.ai/v1"
-                                    : provider.type === "vercel"
-                                      ? "https://ai-gateway.vercel.sh/v3/ai"
-                                      : "https://api.z.ai/api/paas/v4"
-                        }
-                        value={provider.baseUrl || ""}
-                        onChange={(e) =>
-                          handleProviderChange(providerIndex, "baseUrl", e.target.value)
-                        }
-                      />
-                      <p className="text-sm text-muted-foreground">
-                        Leave empty to use the default endpoint. Useful for proxies.
-                      </p>
+                            {provider.oauth && (
+                              <p className="text-sm text-muted-foreground">
+                                Connected
+                                {provider.oauth.accountId ? ` as ${provider.oauth.accountId}` : ""}.
+                                {provider.oauth.expiresAt
+                                  ? ` Expires at ${new Date(provider.oauth.expiresAt).toLocaleString()}.`
+                                  : ""}
+                              </p>
+                            )}
+
+                            {openAIDeviceCode?.providerId === provider.id &&
+                              oauthBusyProviderId === provider.id && (
+                                <div className="space-y-2 text-sm text-muted-foreground">
+                                  <p>Enter this code in OpenAI:</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <code className="rounded border bg-muted px-2 py-1 font-mono">
+                                      {openAIDeviceCode.code}
+                                    </code>
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="h-7"
+                                      onClick={() =>
+                                        handleCopyDeviceCode({
+                                          providerId: provider.id,
+                                          code: openAIDeviceCode.code
+                                        })
+                                      }
+                                    >
+                                      {copiedDeviceCodeProviderId === provider.id ? (
+                                        <Check className="h-3.5 w-3.5 mr-1" />
+                                      ) : (
+                                        <Copy className="h-3.5 w-3.5 mr-1" />
+                                      )}
+                                      {copiedDeviceCodeProviderId === provider.id ? "Copied" : "Copy Code"}
+                                    </Button>
+                                    <a
+                                      href={openAIDeviceCode.verificationUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="underline"
+                                    >
+                                      Open verification page
+                                    </a>
+                                  </div>
+                                </div>
+                              )}
+                          </>
+                        ) : (
+                          <div className="grid gap-2">
+                            <Label htmlFor={`${provider.id}-api-key`}>
+                              API Key
+                            </Label>
+                            <Input
+                              id={`${provider.id}-api-key`}
+                              isPassword
+                              placeholder="Enter API key"
+                              value={provider.apiKey || ""}
+                              onChange={(e) =>
+                                handleProviderChange(providerIndex, "apiKey", e.target.value)
+                              }
+                            />
+                          </div>
+                        )}
+
+                        <div className="grid gap-2">
+                          <Label htmlFor={`${provider.id}-base-url`}>Base URL (Optional)</Label>
+                          <Input
+                            id={`${provider.id}-base-url`}
+                            type="url"
+                            placeholder={getProviderDefaultBaseUrl(provider.type)}
+                            value={provider.baseUrl || ""}
+                            onChange={(e) =>
+                              handleProviderChange(providerIndex, "baseUrl", e.target.value)
+                            }
+                          />
+                          <p className="text-sm text-muted-foreground">
+                            Leave empty to use the default endpoint. Useful for proxies.
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="grid gap-2">
