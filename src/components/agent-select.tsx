@@ -26,11 +26,29 @@ export function AgentSelect() {
 
   const selectedAgent = config?.agents.find((agent) => agent.id === config?.defaultAgent)
 
+  const getProviderLabel = (providerName: string | undefined, providerType: string) => {
+    if (providerName && providerName.trim()) {
+      return providerName
+    }
+
+    return providerType === "openai"
+      ? "OpenAI"
+      : providerType === "anthropic"
+        ? "Anthropic"
+        : providerType === "deepseek"
+          ? "DeepSeek"
+          : providerType === "openrouter"
+            ? "OpenRouter"
+            : "Z.ai"
+  }
+
   const getModelName = (fullModelId: string) => {
     const { providerId, modelId } = parseFullModelId(fullModelId)
     const provider = config?.providers.find((p) => p.id === providerId)
     const model = provider?.models.find((m) => m.id === modelId)
-    return model?.name
+    if (!provider || !model) return undefined
+
+    return `${getProviderLabel(provider.name, provider.type)} / ${model.name}`
   }
 
   return (

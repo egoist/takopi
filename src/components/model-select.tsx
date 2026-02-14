@@ -135,7 +135,7 @@ export function ModelSelect({
   const getDisplayValue = () => {
     if (!value) return placeholder
     const model = allModels.find((m) => m.value === value)
-    return model ? model.label : placeholder
+    return model ? `${model.providerLabel} / ${model.label}` : placeholder
   }
 
   useEffect(() => {
@@ -213,7 +213,7 @@ export function ModelSelect({
               autoFocus
             />
           </div>
-          <div ref={listRef} className="max-h-[300px] overflow-y-auto p-1">
+          <div ref={listRef} className="p-1">
             {filteredModels.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">No model found.</div>
             ) : (
