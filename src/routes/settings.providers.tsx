@@ -14,8 +14,7 @@ import {
   PROVIDERS,
   getProviderDefaultBaseUrl,
   getProviderInfo,
-  isOAuthProvider,
-  type ProviderType
+  isOAuthProvider
 } from "@/lib/providers"
 import type { ProviderConfig, ModelConfig } from "@/types/config"
 import { ModelSelectionDialog } from "@/components/model-selection-dialog"
@@ -95,11 +94,7 @@ export default function ProvidersSettings() {
   const updateConfigMutation = useUpdateConfigMutation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [modelDialogOpen, setModelDialogOpen] = useState(false)
-  const [selectedProvider, setSelectedProvider] = useState<{
-    id: string
-    type: ProviderType
-    currentModels: ModelConfig[]
-  } | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<ProviderConfig | null>(null)
   const [oauthBusyProviderId, setOauthBusyProviderId] = useState<string | null>(null)
   const [openAIDeviceCode, setOpenAIDeviceCode] = useState<{
     providerId: string
@@ -286,16 +281,9 @@ export default function ProvidersSettings() {
     }
   }
 
-  const handleOpenModelDialog = (providerId: string, providerType: ProviderType) => {
-    const provider = providers.find((p) => p.id === providerId)
-    if (provider) {
-      setSelectedProvider({
-        id: providerId,
-        type: providerType,
-        currentModels: provider.models || []
-      })
-      setModelDialogOpen(true)
-    }
+  const handleOpenModelDialog = (provider: ProviderConfig) => {
+    setSelectedProvider(provider)
+    setModelDialogOpen(true)
   }
 
   const handleModelsSelected = (selectedModels: ModelConfig[]) => {
@@ -534,7 +522,7 @@ export default function ProvidersSettings() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleOpenModelDialog(provider.id, provider.type)}
+                          onClick={() => handleOpenModelDialog(provider)}
                         >
                           <ListPlus className="h-4 w-4 mr-1" />
                           Select Models
@@ -577,10 +565,10 @@ export default function ProvidersSettings() {
 
       {selectedProvider && (
         <ModelSelectionDialog
+          key={selectedProvider.id}
           open={modelDialogOpen}
           onOpenChange={setModelDialogOpen}
-          providerType={selectedProvider.type}
-          currentModels={selectedProvider.currentModels}
+          selectedProvider={selectedProvider}
           onConfirm={handleModelsSelected}
         />
       )}

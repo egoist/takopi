@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   Dialog,
   DialogContent,
@@ -12,53 +13,49 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { rpcClient } from "@/lib/rpc-client"
-import { PROVIDERS, type ProviderType } from "@/lib/providers"
-import type { ModelConfig } from "@/types/config"
-import { RefreshCw } from "lucide-react"
+import { PROVIDERS } from "@/lib/providers"
+import type { ModelConfig, ProviderConfig } from "@/types/config"
 import { Loader } from "@cloudflare/kumo"
 
 interface ModelSelectionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  providerType: ProviderType
-  currentModels: ModelConfig[]
+  selectedProvider: ProviderConfig
   onConfirm: (selectedModels: ModelConfig[]) => void
 }
 
 export function ModelSelectionDialog({
   open,
   onOpenChange,
-  providerType,
-  currentModels,
+  selectedProvider,
   onConfirm
 }: ModelSelectionDialogProps) {
-  const [availableModels, setAvailableModels] = useState<ModelConfig[]>([])
+  const { id: providerId, type: providerType, models: currentModels } = selectedProvider
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set())
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
     if (open) {
-      fetchModels()
       // Pre-select currently configured models
       setSelectedModelIds(new Set(currentModels.map((m) => m.id)))
       setSearchQuery("")
     }
-  }, [open, providerType])
+  }, [open, providerId, providerType, currentModels])
 
-  const fetchModels = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
+  const {
+    data: availableModels = [],
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ["provider-models", providerId, providerType],
+    queryFn: async () => {
       const result = await rpcClient.provider.fetchModelsFromAPI({ providerType })
-      setAvailableModels(result.models)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch models")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+      return result.models
+    },
+    enabled: open,
+    staleTime: 0,
+    refetchOnMount: "always"
+  })
 
   const handleToggleModel = (modelId: string) => {
     const newSelected = new Set(selectedModelIds)
@@ -115,7 +112,11 @@ export function ModelSelectionDialog({
             </div>
           )}
 
-          {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
+          {error && (
+            <div className="text-red-500 text-sm mb-4">
+              {error instanceof Error ? error.message : "Failed to fetch models"}
+            </div>
+          )}
 
           {!isLoading && !error && availableModels.length > 0 && (
             <>
