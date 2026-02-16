@@ -23,6 +23,11 @@ export const PROVIDERS = [
     }
   },
   { type: "anthropic", name: "Anthropic", defaultBaseUrl: "https://api.anthropic.com/v1" },
+  {
+    type: "google",
+    name: "Google",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta"
+  },
   { type: "deepseek", name: "DeepSeek", defaultBaseUrl: "https://api.deepseek.com/v1" },
   { type: "openrouter", name: "OpenRouter", defaultBaseUrl: "https://openrouter.ai/api/v1" },
   { type: "opencode", name: "OpenCode Zen", defaultBaseUrl: "https://api.opencode.ai/v1" },

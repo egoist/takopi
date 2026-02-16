@@ -5,6 +5,7 @@ import { useState, useMemo, useRef, useEffect } from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useConfigQuery } from "@/lib/queries"
+import { getProviderInfo } from "@/lib/providers"
 import type { ProviderConfig } from "@/types/config"
 
 interface ModelSelectProps {
@@ -72,15 +73,7 @@ export function ModelSelect({
     if (provider.name && provider.name.trim()) {
       return provider.name
     }
-    return provider.type === "openai"
-      ? "OpenAI"
-      : provider.type === "anthropic"
-        ? "Anthropic"
-        : provider.type === "deepseek"
-          ? "DeepSeek"
-          : provider.type === "openrouter"
-            ? "OpenRouter"
-            : "Z.ai"
+    return getProviderInfo(provider.type)?.name ?? provider.type
   }
 
   const allModels = useMemo(() => {

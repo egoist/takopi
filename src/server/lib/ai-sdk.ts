@@ -113,6 +113,10 @@ export function getAISDKLanguageModel({
       const deepseek = createDeepSeek({ apiKey, ...baseUrlOption })
       return deepseek(modelId)
     })
+    .with("google", () => {
+      const google = createGoogleGenerativeAI({ apiKey, ...baseUrlOption })
+      return google(modelId)
+    })
     .with("opencode", () => {
       const baseURL = providerConfig.baseUrl || "https://opencode.ai/zen/v1"
       return match(modelId)
@@ -211,6 +215,9 @@ export function getAISDKEmbeddingModel(config: Config) {
     })
     .with("deepseek", () => {
       return createDeepSeek({ apiKey, ...baseUrlOption }).embeddingModel(modelId)
+    })
+    .with("google", () => {
+      return createGoogleGenerativeAI({ apiKey, ...baseUrlOption }).textEmbeddingModel(modelId)
     })
     .with("vercel", () => {
       return createGateway({ apiKey, ...baseUrlOption }).embeddingModel(modelId)

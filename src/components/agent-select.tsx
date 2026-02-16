@@ -6,9 +6,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useConfigQuery, useUpdateConfigMutation } from "@/lib/queries"
-import { parseFullModelId } from "@/lib/providers"
+import { getProviderInfo, parseFullModelId } from "@/lib/providers"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
 import { useState } from "react"
+import type { ProviderConfig } from "@/types/config"
 
 export function AgentSelect() {
   const [open, setOpen] = useState(false)
@@ -26,20 +27,14 @@ export function AgentSelect() {
 
   const selectedAgent = config?.agents.find((agent) => agent.id === config?.defaultAgent)
 
-  const getProviderLabel = (providerName: string | undefined, providerType: string) => {
+  const getProviderLabel = (
+    providerName: string | undefined,
+    providerType: ProviderConfig["type"]
+  ) => {
     if (providerName && providerName.trim()) {
       return providerName
     }
-
-    return providerType === "openai"
-      ? "OpenAI"
-      : providerType === "anthropic"
-        ? "Anthropic"
-        : providerType === "deepseek"
-          ? "DeepSeek"
-          : providerType === "openrouter"
-            ? "OpenRouter"
-            : "Z.ai"
+    return getProviderInfo(providerType)?.name ?? providerType
   }
 
   const getModelName = (fullModelId: string) => {
