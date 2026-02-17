@@ -13,6 +13,7 @@ interface ModelSelectProps {
   onValueChange: (value: string) => void
   placeholder?: string
   id?: string
+  modelType?: "chat" | "embedding"
 }
 
 interface ModelItem {
@@ -60,7 +61,8 @@ export function ModelSelect({
   value,
   onValueChange,
   placeholder = "Select a model",
-  id
+  id,
+  modelType
 }: ModelSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -68,6 +70,7 @@ export function ModelSelect({
   const listRef = useRef<HTMLDivElement>(null)
   const { data: config } = useConfigQuery()
   const providers = (config?.providers || []).filter((p) => p.models && p.models.length > 0)
+  const targetModelType = modelType ?? "chat"
 
   const getProviderLabel = (provider: ProviderConfig) => {
     if (provider.name && provider.name.trim()) {
@@ -80,6 +83,9 @@ export function ModelSelect({
     const models: ModelItem[] = []
     providers.forEach((provider) => {
       provider.models?.forEach((model) => {
+        if (model.type !== targetModelType) {
+          return
+        }
         models.push({
           value: `${provider.id}/${model.id}`,
           label: model.name,
@@ -89,7 +95,7 @@ export function ModelSelect({
       })
     })
     return models
-  }, [providers])
+  }, [providers, targetModelType])
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) return allModels

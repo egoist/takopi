@@ -3,6 +3,7 @@ import type { ProviderType } from "@/lib/providers"
 export interface ModelConfig {
   id: string
   name: string
+  type: "chat" | "embedding"
   knowledge?: string
   release_date?: string
   last_updated?: string

@@ -24,6 +24,7 @@ export default function GeneralSettings() {
             <ModelSelect
               id="embedding-model"
               value={config?.embeddingModel ?? ""}
+              modelType="embedding"
               onValueChange={(value) => {
                 updateConfig.mutate({ embeddingModel: value })
               }}

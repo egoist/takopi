@@ -10,7 +10,6 @@ import {
 } from "../lib/chat-storage"
 import { saveSessionMemory, deleteSessionMemory } from "../lib/memory"
 import { openMemoryDB } from "../lib/memory-index"
-import type { Chat } from "@/types/chat"
 import { join } from "node:path"
 import { readdir, stat, readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -35,10 +34,6 @@ export const chatRouter = {
     .handler(async ({ input }) => {
       return getChatFromStorage(input.chatId)
     }),
-
-  saveChat: base.input(z.custom<Chat>()).handler(async ({ input }) => {
-    await saveChat(input)
-  }),
 
   renameChat: base
     .input(

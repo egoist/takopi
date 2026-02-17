@@ -8,6 +8,10 @@ import {
   getTakopiRoot
 } from "./paths"
 
+function getModelType(modelId: string): "chat" | "embedding" {
+  return modelId.toLowerCase().includes("embedding") ? "embedding" : "chat"
+}
+
 export async function ensureConfigDir() {
   const configDir = getTakopiRoot()
   if (!existsSync(configDir)) {
@@ -35,7 +39,17 @@ export async function getConfig(): Promise<Config> {
     return {
       providers: (config.providers || []).map((provider: Record<string, unknown>) => ({
         ...provider,
-        models: (provider.models as unknown[]) || []
+        models: ((provider.models as Record<string, unknown>[]) || []).map((model) => {
+          const modelId = typeof model.id === "string" ? model.id : ""
+          const modelType = model.type
+          return {
+            ...model,
+            type:
+              modelType === "chat" || modelType === "embedding"
+                ? modelType
+                : getModelType(modelId)
+          }
+        })
       })),
       agents: config.agents || [],
       defaultAgent: config.defaultAgent,

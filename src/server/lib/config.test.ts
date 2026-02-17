@@ -81,7 +81,7 @@ describe("config", () => {
             name: "OpenAI",
             type: "openai",
             apiKey: "sk-test",
-            models: [{ id: "gpt-4", name: "GPT-4" }],
+            models: [{ id: "gpt-4", name: "GPT-4", type: "chat" }],
           },
         ],
         agents: [{ id: "a1", name: "Test Agent", model: "p1/gpt-4" }],

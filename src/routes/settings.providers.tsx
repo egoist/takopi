@@ -49,6 +49,10 @@ function sleep(ms: number) {
   })
 }
 
+function getModelType(modelId: string): "chat" | "embedding" {
+  return modelId.toLowerCase().includes("embedding") ? "embedding" : "chat"
+}
+
 function AddProviderMenu({
   options,
   onSelect,
@@ -288,8 +292,12 @@ export default function ProvidersSettings() {
 
   const handleModelsSelected = (selectedModels: ModelConfig[]) => {
     if (selectedProvider) {
+      const normalizedModels = selectedModels.map((model) => ({
+        ...model,
+        type: model.type ?? getModelType(model.id)
+      }))
       const updatedProviders = providers.map((p) =>
-        p.id === selectedProvider.id ? { ...p, models: selectedModels } : p
+        p.id === selectedProvider.id ? { ...p, models: normalizedModels } : p
       )
       updateConfigMutation.mutate({
         providers: updatedProviders
@@ -537,7 +545,14 @@ export default function ProvidersSettings() {
                             >
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium truncate">{m.name}</div>
-                                <div className="text-xs text-muted-foreground truncate">{m.id}</div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="text-xs text-muted-foreground truncate">
+                                    {m.id}
+                                  </div>
+                                  <span className="inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    {m.type ?? "chat"}
+                                  </span>
+                                </div>
                               </div>
                               <Button
                                 variant="ghost"
