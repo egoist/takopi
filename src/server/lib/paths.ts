@@ -41,6 +41,10 @@ export function getTakopiDataDir(): string {
   return getTakopiPath("data")
 }
 
+export function getTakopiFilesDir(): string {
+  return getTakopiPath("files")
+}
+
 export function getTakopiSkillsDir(): string {
   return getTakopiPath("skills")
 }

@@ -1,6 +1,8 @@
 import type { Chat, ChatMessage } from "@/types/chat"
 import { generateId } from "ai"
 
+export type UserAttachmentPart = NonNullable<ChatMessage["files"]>[number]
+
 export const getDisplayedMessages = <T extends ChatMessage>(messages: T[]) => {
   let firstMessage: T | undefined
   const displayedMessages: T[] = []
@@ -34,24 +36,29 @@ export const getDisplayedMessages = <T extends ChatMessage>(messages: T[]) => {
 export function createUserMessage({
   id,
   input,
-  agentId
+  agentId,
+  attachments = []
 }: {
   id: string
   input: string
   agentId: string
+  attachments?: UserAttachmentPart[]
 }): ChatMessage {
   return {
     role: "user",
     id,
     createdAt: Date.now(),
-    content: input
-      ? [
-          {
-            type: "text",
-            text: input
-          }
-        ]
-      : [],
+    content: [
+      ...(input
+        ? [
+            {
+              type: "text" as const,
+              text: input
+            }
+          ]
+        : [])
+    ],
+    files: attachments,
     nextMessageIds: [],
     metadata: {},
     agent: agentId
@@ -89,7 +96,15 @@ export function getChatDefault({ chatId, agentId }: { chatId: string; agentId: s
   }
 }
 
-export function getInitialMessages({ input, agentId }: { input: string; agentId: string }) {
+export function getInitialMessages({
+  input,
+  agentId,
+  attachments = []
+}: {
+  input: string
+  agentId: string
+  attachments?: UserAttachmentPart[]
+}) {
   const userMessageId = generateId()
 
   return [
@@ -100,7 +115,8 @@ export function getInitialMessages({ input, agentId }: { input: string; agentId:
     createUserMessage({
       id: userMessageId,
       input,
-      agentId
+      agentId,
+      attachments
     })
   ]
 }

@@ -1,23 +1,36 @@
 import { useState, useRef, useCallback } from "react"
-import { ArrowUp, Square, X } from "lucide-react"
+import { ArrowUp, Paperclip, Square, X } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "./ui/button"
 import { AgentSelect } from "./agent-select"
 import { MentionPopover } from "./mention-popover"
 import { SlashCommandPopover } from "./slash-command-popover"
 import { rpc } from "@/lib/rpc-client"
+import type { UserAttachmentPart } from "@/lib/chat"
+import { setChatState, useChatState } from "@/lib/use-chat"
 
 type SendBoxProps = {
-  input: string
-  setInput: (value: string) => void
+  chatId: string
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   editingMessageId: string | null
   isLoading: boolean
   agentId?: string
-  onSubmit: (e: React.FormEvent) => void
+  onSubmit: (e: React.FormEvent, attachments: UserAttachmentPart[]) => void
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   onCancelEditing: () => void
   onStop: () => void
+}
+
+const toRenderableFileUrl = (value: string) => {
+  if (value.startsWith("data:")) return value
+  if (value.startsWith("http://") || value.startsWith("https://")) return value
+  if (value.startsWith("file://")) {
+    return `/api/attachment?path=${encodeURIComponent(value)}`
+  }
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) {
+    return `/api/attachment?path=${encodeURIComponent(value)}`
+  }
+  return value
 }
 
 function detectMention(textarea: HTMLTextAreaElement) {
@@ -45,8 +58,7 @@ function detectSlashCommand(textarea: HTMLTextAreaElement) {
 }
 
 export function SendBox({
-  input,
-  setInput,
+  chatId,
   textareaRef,
   editingMessageId,
   isLoading,
@@ -54,8 +66,31 @@ export function SendBox({
   onSubmit,
   onKeyDown,
   onCancelEditing,
-  onStop,
+  onStop
 }: SendBoxProps) {
+  const chatState = useChatState(chatId)
+
+  const input = chatState.input || ""
+  const setInput = (value: string) => {
+    setChatState(chatId, (prev) => {
+      return {
+        ...prev,
+        input: value
+      }
+    })
+  }
+
+  const attachments = chatState.draftAttachments || []
+  const setAttachments = (updater: React.SetStateAction<UserAttachmentPart[]>) => {
+    setChatState(chatId, (prev) => {
+      return {
+        ...prev,
+        draftAttachments:
+          typeof updater === "function" ? updater(prev.draftAttachments || []) : updater
+      }
+    })
+  }
+
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState("")
   const [mentionHighlightedIndex, setMentionHighlightedIndex] = useState(0)
@@ -65,19 +100,22 @@ export function SendBox({
   const [slashQuery, setSlashQuery] = useState("")
   const [slashHighlightedIndex, setSlashHighlightedIndex] = useState(0)
   const slashRange = useRef<{ start: number; end: number } | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const { data: workspaceFiles = [] } = useQuery({
     ...rpc.chat.searchWorkspaceFiles.queryOptions({
-      input: { agentId: agentId!, query: mentionQuery },
+      input: { agentId: agentId!, query: mentionQuery }
     }),
-    enabled: mentionOpen && !!agentId,
+    enabled: mentionOpen && !!agentId
   })
 
   const { data: skills = [] } = useQuery({
     ...rpc.chat.listSkills.queryOptions({
-      input: { query: slashQuery || undefined },
+      input: { query: slashQuery || undefined }
     }),
-    enabled: slashOpen,
+    enabled: slashOpen
   })
 
   const updateMention = useCallback((textarea: HTMLTextAreaElement) => {
@@ -174,9 +212,7 @@ export function SendBox({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault()
-          setSlashHighlightedIndex((prev) =>
-            prev < skills.length - 1 ? prev + 1 : prev
-          )
+          setSlashHighlightedIndex((prev) => (prev < skills.length - 1 ? prev + 1 : prev))
           return
         case "ArrowUp":
           e.preventDefault()
@@ -202,9 +238,7 @@ export function SendBox({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault()
-          setMentionHighlightedIndex((prev) =>
-            prev < workspaceFiles.length - 1 ? prev + 1 : prev
-          )
+          setMentionHighlightedIndex((prev) => (prev < workspaceFiles.length - 1 ? prev + 1 : prev))
           return
         case "ArrowUp":
           e.preventDefault()
@@ -228,8 +262,98 @@ export function SendBox({
     onKeyDown(e)
   }
 
+  const addAttachments = useCallback(
+    async (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) return
+
+      setIsUploadingAttachments(true)
+      setUploadError(null)
+
+      const uploaded = await Promise.allSettled(
+        Array.from(fileList).map(async (file) => {
+          const formData = new FormData()
+          formData.append("file", file)
+
+          const response = await fetch("/api/upload-attachment", {
+            method: "POST",
+            body: formData
+          })
+
+          if (!response.ok) {
+            const text = await response.text()
+            throw new Error(text || `Failed to upload ${file.name}`)
+          }
+
+          const payload = (await response.json()) as {
+            path: string
+            mediaType: string
+            filename: string
+          }
+
+          return {
+            type: "file" as const,
+            mediaType: payload.mediaType || file.type || "application/octet-stream",
+            filename: payload.filename || file.name,
+            url: payload.path
+          }
+        })
+      )
+      setIsUploadingAttachments(false)
+
+      const nextParts: UserAttachmentPart[] = []
+      let failedCount = 0
+      for (const result of uploaded) {
+        if (result.status === "fulfilled") {
+          nextParts.push(result.value)
+        } else {
+          failedCount += 1
+        }
+      }
+      if (failedCount > 0) {
+        setUploadError(
+          failedCount === 1
+            ? "One attachment failed to upload."
+            : `${failedCount} attachments failed to upload.`
+        )
+      }
+
+      setAttachments((prev) => {
+        const deduped = new Set<string>(
+          prev.map((part) => `${part.filename || "attachment"}-${part.mediaType}-${part.url}`)
+        )
+        const merged = [...prev]
+        for (const part of nextParts) {
+          const key = `${part.filename || "attachment"}-${part.mediaType}-${part.url}`
+          if (!deduped.has(key)) {
+            deduped.add(key)
+            merged.push(part)
+          }
+        }
+        return merged
+      })
+    },
+    [setAttachments]
+  )
+
+  const handleAttachmentInputChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      await addAttachments(event.target.files)
+      event.target.value = ""
+    },
+    [addAttachments]
+  )
+
+  const removeAttachment = useCallback(
+    (index: number) => {
+      setAttachments((prev) => prev.filter((_, attachmentIndex) => attachmentIndex !== index))
+    },
+    [setAttachments]
+  )
+
+  const canSubmit = !isUploadingAttachments && (input.trim().length > 0 || attachments.length > 0)
+
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={(event) => onSubmit(event, attachments)}>
       <div className="border rounded-md">
         {editingMessageId && (
           <div className="flex items-center justify-between border-b px-3 py-1.5 text-sm text-zinc-500">
@@ -244,6 +368,41 @@ export function SendBox({
             </button>
           </div>
         )}
+        {attachments.length > 0 && (
+          <div className="px-2 pt-2 flex flex-wrap gap-2">
+            {attachments.map((attachment, index) => {
+              const isImage = attachment.mediaType.startsWith("image/")
+              return (
+                <div
+                  key={`${attachment.filename || "attachment"}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+                >
+                  {isImage ? (
+                    <img
+                      src={toRenderableFileUrl(attachment.url)}
+                      alt={attachment.filename || "image attachment"}
+                      className="size-8 rounded object-cover"
+                    />
+                  ) : (
+                    <Paperclip className="size-3.5 text-zinc-500" />
+                  )}
+                  <span className="max-w-[180px] truncate">
+                    {attachment.filename || "attachment"}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.filename || "attachment"}`}
+                    onClick={() => removeAttachment(index)}
+                    className="text-zinc-500 hover:text-zinc-900"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {uploadError && <div className="px-2 pb-1 text-xs text-destructive">{uploadError}</div>}
         <textarea
           ref={textareaRef}
           className="outline-none resize-none p-2 w-full"
@@ -256,18 +415,29 @@ export function SendBox({
         />
         <div className="flex items-center justify-between px-2 pb-2">
           <AgentSelect />
-          <div>
+          <div className="flex items-center gap-1">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleAttachmentInputChange}
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => attachmentInputRef.current?.click()}
+              disabled={isLoading || isUploadingAttachments}
+            >
+              <Paperclip className="size-4" />
+            </Button>
             {isLoading ? (
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="destructive"
-                onClick={onStop}
-              >
+              <Button type="button" size="icon-sm" variant="destructive" onClick={onStop}>
                 <Square className="size-3.5" />
               </Button>
             ) : (
-              <Button type="submit" size="icon-sm" disabled={!input.trim()}>
+              <Button type="submit" size="icon-sm" disabled={!canSubmit}>
                 <ArrowUp className="size-4" />
               </Button>
             )}

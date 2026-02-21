@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react"
 import { useParams, useNavigate } from "react-router"
 import { generateId } from "ai"
 import { rpc } from "@/lib/rpc-client"
 import { MessageBlock } from "./message-block"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useChat, type SetChat, type SetMessages } from "@/lib/use-chat"
 import { ToolConfirmation } from "./tool-confirmation"
 import { UserQuestion } from "./user-question"
-import { getChatDefault, getDisplayedMessages, getInitialMessages } from "@/lib/chat"
+import {
+  type UserAttachmentPart,
+  getChatDefault,
+  getDisplayedMessages,
+  getInitialMessages
+} from "@/lib/chat"
 import { useChatQuery, useConfigQuery, useMessagesQuery } from "@/lib/queries"
 import { SendBox } from "./send-box"
 
@@ -20,7 +25,6 @@ export function ChatUI() {
   const initialChatId = params.chatId
   const chatId = initialChatId || newChatId
 
-  const [input, setInput] = useState("")
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const queryClient = useQueryClient()
@@ -76,6 +80,7 @@ export function ChatUI() {
 
   const {
     chatState,
+    setChatState,
     sendMessages,
     createAndSendMessage,
     editAndSendMessage,
@@ -92,6 +97,8 @@ export function ChatUI() {
     agentId: currentAgentId,
     endpoint: "/api/chat"
   })
+
+  const attachments = chatState.draftAttachments || []
 
   // Auto-submit after navigation to new chat
   useEffect(() => {
@@ -113,10 +120,20 @@ export function ChatUI() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || chatState.generatingMessageId) return
+
+    const input = chatState.input || ""
+    const attachments = chatState.draftAttachments || []
+    if ((!input.trim() && attachments.length === 0) || chatState.generatingMessageId) return
 
     const content = input.trim()
-    setInput("")
+    const selectedAttachments = attachments
+    setChatState(chatId, (prev) => {
+      return {
+        ...prev,
+        input: "",
+        draftAttachments: []
+      }
+    })
 
     // If on homepage (no initialChatId), create default chat and navigate
     if (!initialChatId) {
@@ -126,7 +143,8 @@ export function ChatUI() {
       })
       const initialMessages = getInitialMessages({
         input: content,
-        agentId: currentAgentId
+        agentId: currentAgentId,
+        attachments: selectedAttachments
       })
 
       queryClient.setQueryData(
@@ -159,7 +177,8 @@ export function ChatUI() {
       editAndSendMessage({
         editedUserMessageId: editingMessageId,
         id: userMessageId,
-        input: content
+        input: content,
+        attachments: selectedAttachments
       })
       setEditingMessageId(null)
       return
@@ -169,19 +188,36 @@ export function ChatUI() {
     const userMessageId = generateId()
     createAndSendMessage({
       id: userMessageId,
-      input: content
+      input: content,
+      attachments: selectedAttachments
     })
   }
 
-  const handleEditMessage = (messageId: string, text: string) => {
+  const handleEditMessage = (
+    messageId: string,
+    text: string,
+    messageAttachments: UserAttachmentPart[]
+  ) => {
     setEditingMessageId(messageId)
-    setInput(text)
+    setChatState(chatId, (prev) => {
+      return {
+        ...prev,
+        input: text,
+        draftAttachments: messageAttachments
+      }
+    })
     textareaRef.current?.focus()
   }
 
   const cancelEditing = () => {
     setEditingMessageId(null)
-    setInput("")
+    setChatState(chatId, (prev) => {
+      return {
+        ...prev,
+        input: "",
+        draftAttachments: []
+      }
+    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -243,8 +279,7 @@ export function ChatUI() {
       </div>
       <div className="shrink-0 p-2">
         <SendBox
-          input={input}
-          setInput={setInput}
+          chatId={chatId}
           textareaRef={textareaRef}
           editingMessageId={editingMessageId}
           isLoading={isLoading}

@@ -1,9 +1,19 @@
 import type { ChatMessage } from "@/types/chat"
+import type { ChatMessageFile } from "@/types/chat"
 import type { CustomUIMessagePart } from "@/lib/types"
 import { isStaticToolUIPart, isToolUIPart } from "ai"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import { Copy, RefreshCw, Check, ChevronLeft, ChevronRight, Pencil, BarChart3 } from "lucide-react"
+import {
+  Copy,
+  RefreshCw,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  BarChart3,
+  Paperclip
+} from "lucide-react"
 import { Loader } from "@cloudflare/kumo"
 import { Markdown } from "./markdown"
 import { ReasoningBlock } from "./reasoning-block"
@@ -17,7 +27,11 @@ interface MessageBlockProps {
   message: ChatMessage
   isGenerating?: boolean
   regenerate: (ctx?: { messageId?: string }) => void
-  onEdit: (messageId: string, text: string) => void
+  onEdit: (
+    messageId: string,
+    text: string,
+    attachments: ChatMessageFile[]
+  ) => void
   alternativeMessages: ChatMessage[]
   prevMessageId?: string
 }
@@ -68,6 +82,18 @@ function formatUSD(value: number): string {
     currency: "USD",
     maximumFractionDigits: 6
   }).format(value)
+}
+
+function toRenderableFileUrl(value: string): string {
+  if (value.startsWith("data:")) return value
+  if (value.startsWith("http://") || value.startsWith("https://")) return value
+  if (value.startsWith("file://")) {
+    return `/api/attachment?path=${encodeURIComponent(value)}`
+  }
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) {
+    return `/api/attachment?path=${encodeURIComponent(value)}`
+  }
+  return value
 }
 
 export function MessageBlock({
@@ -124,12 +150,43 @@ export function MessageBlock({
 
 const UserMessage = ({ message }: { message: ChatMessage }) => {
   const content = getMessageText(message)
+  const attachments = message.files ?? []
 
   return (
     <div className="flex flex-col items-end max-w-[80%]">
       {content && (
         <div className="w-fit rounded-xl bg-zinc-100  p-2 px-3.5 break-all whitespace-break-spaces">
           {content}
+        </div>
+      )}
+      {attachments.length > 0 && (
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          {attachments.map((attachment, index) => {
+            const isImage = attachment.mediaType.startsWith("image/")
+            return (
+              <a
+                key={`${attachment.filename || "attachment"}-${index}`}
+                href={toRenderableFileUrl(attachment.url)}
+                download={attachment.filename}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border bg-white px-2 py-1 text-xs text-zinc-700"
+              >
+                {isImage ? (
+                  <img
+                    src={toRenderableFileUrl(attachment.url)}
+                    alt={attachment.filename || "image attachment"}
+                    className="size-10 rounded object-cover"
+                  />
+                ) : (
+                  <Paperclip className="size-3.5 text-zinc-500" />
+                )}
+                <span className="max-w-[180px] truncate">
+                  {attachment.filename || "attachment"}
+                </span>
+              </a>
+            )
+          })}
         </div>
       )}
     </div>
@@ -259,7 +316,11 @@ const UserMessageActions = ({
 }: {
   message: ChatMessage
   chatId: string
-  onEdit: (messageId: string, text: string) => void
+  onEdit: (
+    messageId: string,
+    text: string,
+    attachments: ChatMessageFile[]
+  ) => void
   currentMessageIndex: number
   alternativeMessages: ChatMessage[]
   prevMessageId?: string
@@ -268,6 +329,8 @@ const UserMessageActions = ({
   const [copied, setCopied] = useState(false)
   const content = getMessageText(message)
   const hasContent = content.length > 0
+  const attachments = message.files ?? []
+  const hasEditableContent = hasContent || attachments.length > 0
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -277,15 +340,17 @@ const UserMessageActions = ({
 
   return (
     <div className="flex items-center gap-2 opacity-0 group-hover/message-block:opacity-100 transition-opacity justify-end">
+      {hasEditableContent && (
+        <button
+          onClick={() => onEdit(message.id, content, attachments)}
+          className="inline-flex items-center p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700"
+          title="Edit"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+      )}
       {hasContent && (
         <>
-          <button
-            onClick={() => onEdit(message.id, content)}
-            className="inline-flex items-center p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700"
-            title="Edit"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
           <button
             onClick={handleCopy}
             className="inline-flex items-center p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700"

@@ -1,5 +1,9 @@
 import os from "node:os"
-import type { ModelMessage, SystemModelMessage, UserModelMessage } from "ai"
+import { readFile } from "node:fs/promises"
+import { basename, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { convertToModelMessages } from "ai"
+import type { SystemModelMessage, UserModelMessage } from "ai"
 import dayjs from "dayjs"
 import {
   formatSkillsAsXML,
@@ -11,8 +15,60 @@ import {
 } from "./skills"
 import { loadMemoryContext, loadWorkspaceFiles } from "./memory"
 import type { ChatMessage } from "@/types/chat"
+import type { ChatMessageFile } from "@/types/chat"
 import type { ModelConfig } from "@/types/config"
-import { getAgentWorkspaceDir } from "./paths"
+import { getAgentWorkspaceDir, getTakopiFilesDir } from "./paths"
+
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)
+}
+
+function getAttachmentFilePath(value: string): string | null {
+  if (value.startsWith("file://")) {
+    try {
+      return fileURLToPath(value)
+    } catch {
+      return null
+    }
+  }
+  if (isAbsolutePath(value)) {
+    return value
+  }
+  return null
+}
+
+async function resolveFileAttachmentForModel(
+  part: ChatMessageFile,
+  allowedAttachmentsDir: string
+) {
+  const filePath = getAttachmentFilePath(part.url)
+  if (!filePath) {
+    return part
+  }
+
+  const resolvedPath = resolve(filePath)
+  if (
+    resolvedPath !== allowedAttachmentsDir &&
+    !resolvedPath.startsWith(`${allowedAttachmentsDir}/`) &&
+    !resolvedPath.startsWith(`${allowedAttachmentsDir}\\`)
+  ) {
+    // Ignore unsafe absolute paths supplied by clients.
+    return null
+  }
+
+  try {
+    const fileContent = await readFile(resolvedPath)
+    const mediaType = part.mediaType || "application/octet-stream"
+    return {
+      ...part,
+      filename: part.filename || basename(resolvedPath),
+      // Keep persisted messages path-based; only convert right before model invocation.
+      url: `data:${mediaType};base64,${fileContent.toString("base64")}`
+    }
+  } catch {
+    return null
+  }
+}
 
 export async function processMessages(
   messages: ChatMessage[],
@@ -26,18 +82,30 @@ export async function processMessages(
     agentId: string
   }
 ) {
-  const modelMessages: ModelMessage[] = messages.map((msg) => {
-    const textContent =
-      msg.content
-        ?.filter((part: any) => part.type === "text")
-        .map((part: any) => part.text)
-        .join("") || ""
+  const allowedAttachmentsDir = resolve(getTakopiFilesDir())
+  const resolvedMessages = await Promise.all(
+    messages.map(async (message) => {
+      const parts = await Promise.all(
+        (message.files ?? []).map(async (part) => {
+          return resolveFileAttachmentForModel(part, allowedAttachmentsDir)
+        })
+      )
+      const content = message.content.filter((part) => part.type !== "file")
+      const files = parts.filter((part) => part !== null)
+      return {
+        ...message,
+        content,
+        files
+      }
+    })
+  )
 
-    return {
-      role: msg.role,
-      content: textContent
-    }
-  })
+  const modelMessages = await convertToModelMessages(
+    resolvedMessages.map((message) => ({
+      role: message.role,
+      parts: [...message.content, ...(message.files || [])]
+    }))
+  )
 
   const skills = await loadSkills()
   const skillsMetadata = getSkillsMetadata(skills)
@@ -136,11 +204,12 @@ You have been invoked in the following environment:
   // Detect /skillname references across all messages and preload matched skills
   const preloadedSkillNames = new Set<string>()
   for (const msg of messages) {
-    const text =
-      msg.content
-        ?.filter((part) => part.type === "text")
-        .map((part) => (part as { type: "text"; text: string }).text)
-        .join("") || ""
+    const text = msg.content
+      .filter((part): part is Extract<(typeof msg.content)[number], { type: "text" }> => {
+        return part.type === "text"
+      })
+      .map((part) => part.text)
+      .join("")
     const slashMatches = text.match(/(^|\s)\/(\w[\w-]*)/g)
     if (slashMatches) {
       for (const match of slashMatches) {

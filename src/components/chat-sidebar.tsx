@@ -102,6 +102,16 @@ export function ChatSidebar({ activeChatId }: ChatSidebarProps) {
     mutationFn: (input: { chatId: string }) => rpcClient.chat.deleteChat(input),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: rpc.chat.getChats.queryKey() })
+      queryClient.removeQueries({
+        queryKey: rpc.chat.getMessages.queryKey({
+          input: { chatId: variables.chatId }
+        })
+      })
+      queryClient.removeQueries({
+        queryKey: rpc.chat.getChat.queryKey({
+          input: { chatId: variables.chatId }
+        })
+      })
       setDeleteChat(null)
       if (activeChatId === variables.chatId) {
         navigate("/")

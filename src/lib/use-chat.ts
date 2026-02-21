@@ -1,27 +1,34 @@
 import { generateId } from "ai"
 import type { UIMessagePart } from "ai"
 import { createParser } from "eventsource-parser"
-import { atom, useAtom } from "jotai"
+import { atom, getDefaultStore, useAtom, useAtomValue, useSetAtom } from "jotai"
 import { useMemo } from "react"
 import {
+  type UserAttachmentPart,
   createSpecialUserMessage,
   createUserMessage,
-  getDisplayedMessages,
-  getInitialMessages
+  getDisplayedMessages
 } from "./chat"
 import type { Chat, ChatMessage } from "@/types/chat"
 import type { CustomUIMessagePart, ToolConfirmation, UserQuestionRequest } from "./types"
 
 type ChatStateType = {
+  input?: string
   generatingMessageId?: string
   error?: Error
   toolConfirmations?: ToolConfirmation[]
   userQuestions?: UserQuestionRequest[]
+  draftAttachments?: UserAttachmentPart[]
 }
 
 const chatStatesAtom = atom<{
   [chatId: string]: ChatStateType
 }>({})
+
+export const useChatState = (chatId: string) => {
+  const chatStates = useAtomValue(chatStatesAtom)
+  return chatStates[chatId] || {}
+}
 
 const abortControllers: { [chatId: string]: AbortController | undefined } = {}
 
@@ -30,6 +37,23 @@ export type SetMessages = (
 ) => void
 
 export type SetChat = (updater: Chat | ((chat: Chat) => Chat)) => void
+
+export const setChatState = (
+  chatId: string,
+  state: ChatStateType | ((prev: ChatStateType) => ChatStateType)
+) => {
+  const store = getDefaultStore()
+  store.set(chatStatesAtom, (prev) => ({
+    ...prev,
+    [chatId]:
+      typeof state === "function"
+        ? state(prev[chatId] || {})
+        : {
+            ...prev[chatId],
+            ...state
+          }
+  }))
+}
 
 export const useChat = ({
   chatId,
@@ -46,27 +70,14 @@ export const useChat = ({
   endpoint?: string
   agentId: string
 }) => {
-  const [chatStates, setChatStates] = useAtom(chatStatesAtom)
+  const chatStates = useAtomValue(chatStatesAtom)
   const chatState = useMemo(() => chatStates[chatId] || {}, [chatStates, chatId])
-
-  const setChatState = (state: ChatStateType | ((prev: ChatStateType) => ChatStateType)) => {
-    setChatStates((prev) => ({
-      ...prev,
-      [chatId]:
-        typeof state === "function"
-          ? state(prev[chatId] || {})
-          : {
-              ...prev[chatId],
-              ...state
-            }
-    }))
-  }
 
   const stop = () => {
     abortControllers[chatId]?.abort()
     abortControllers[chatId] = undefined
 
-    setChatState((prev) => ({
+    setChatState(chatId, (prev) => ({
       ...prev,
       generatingMessageId: undefined,
       toolConfirmations: undefined,
@@ -85,7 +96,7 @@ export const useChat = ({
     answers: Array<{ question: string; selectedOptions: string[]; customAnswer?: string }>
   ) => {
     // Remove question UI immediately
-    setChatState((prev) => ({
+    setChatState(chatId, (prev) => ({
       ...prev,
       userQuestions: (prev.userQuestions || []).filter((q) => q.toolCallId !== toolCallId)
     }))
@@ -99,7 +110,7 @@ export const useChat = ({
 
   const confirmTool = async (toolCallId: string, approved: boolean) => {
     // Remove confirmation UI immediately
-    setChatState((prev) => ({
+    setChatState(chatId, (prev) => ({
       ...prev,
       toolConfirmations: (prev.toolConfirmations || []).filter((c) => c.toolCallId !== toolCallId)
     }))
@@ -152,7 +163,7 @@ export const useChat = ({
         } else if (event.event === "tool-confirmation") {
           const confirmation: ToolConfirmation = JSON.parse(event.data)
           if (confirmation.status === "pending") {
-            setChatState((prev) => ({
+            setChatState(chatId, (prev) => ({
               ...prev,
               toolConfirmations: [
                 ...(prev.toolConfirmations || []).filter(
@@ -163,7 +174,7 @@ export const useChat = ({
             }))
           } else {
             // approved or rejected: remove from the list
-            setChatState((prev) => ({
+            setChatState(chatId, (prev) => ({
               ...prev,
               toolConfirmations: (prev.toolConfirmations || []).filter(
                 (c) => c.toolCallId !== confirmation.toolCallId
@@ -173,7 +184,7 @@ export const useChat = ({
         } else if (event.event === "user-question") {
           const question: UserQuestionRequest = JSON.parse(event.data)
           if (question.status === "pending") {
-            setChatState((prev) => ({
+            setChatState(chatId, (prev) => ({
               ...prev,
               userQuestions: [
                 ...(prev.userQuestions || []).filter((q) => q.toolCallId !== question.toolCallId),
@@ -182,7 +193,7 @@ export const useChat = ({
             }))
           } else {
             // answered or timeout: remove from the list
-            setChatState((prev) => ({
+            setChatState(chatId, (prev) => ({
               ...prev,
               userQuestions: (prev.userQuestions || []).filter(
                 (q) => q.toolCallId !== question.toolCallId
@@ -191,7 +202,7 @@ export const useChat = ({
           }
         } else if (event.event === "error") {
           console.log("chat completed with error:", event.data)
-          setChatState((prev) => ({ ...prev, error: new Error(event.data) }))
+          setChatState(chatId, (prev) => ({ ...prev, error: new Error(event.data) }))
         }
       }
     })
@@ -207,7 +218,7 @@ export const useChat = ({
       parser.feed(decoder.decode(value))
     }
 
-    setChatState((prev) => ({
+    setChatState(chatId, (prev) => ({
       ...prev,
       generatingMessageId: undefined,
       toolConfirmations: undefined,
@@ -265,7 +276,7 @@ export const useChat = ({
       return requestMessages
     })
 
-    setChatState((prev) => ({
+    setChatState(chatId, (prev) => ({
       ...prev,
       error: undefined,
       generatingMessageId: assistantMessageId
@@ -299,7 +310,7 @@ export const useChat = ({
 
       await handleStream(response, assistantMessageId)
     } catch (error) {
-      setChatState((prev) => ({
+      setChatState(chatId, (prev) => ({
         ...prev,
         generatingMessageId: undefined,
         error: abortController.signal.aborted
@@ -311,7 +322,15 @@ export const useChat = ({
     }
   }
 
-  const createAndSendMessage = ({ id, input }: { id: string; input: string }) => {
+  const createAndSendMessage = ({
+    id,
+    input,
+    attachments = []
+  }: {
+    id: string
+    input: string
+    attachments?: UserAttachmentPart[]
+  }) => {
     const { displayedMessages } = getDisplayedMessages(messages)
 
     const lastDisplayMessage = displayedMessages[displayedMessages.length - 1]
@@ -319,6 +338,7 @@ export const useChat = ({
     const userMessage = createUserMessage({
       id,
       input,
+      attachments,
       agentId
     })
 
@@ -359,14 +379,14 @@ export const useChat = ({
         signal: abortController.signal
       })
       if (res.ok && res.headers.get("Content-Type")?.includes("text/event-stream")) {
-        setChatState((prev) => ({
+        setChatState(chatId, (prev) => ({
           ...prev,
           generatingMessageId: assistantMessageId
         }))
         await handleStream(res, assistantMessageId)
       }
     } catch (error) {
-      setChatState((prev) => ({
+      setChatState(chatId, (prev) => ({
         ...prev,
         generatingMessageId: undefined,
         error: abortController.signal.aborted
@@ -381,18 +401,20 @@ export const useChat = ({
   const editAndSendMessage = ({
     editedUserMessageId,
     id,
-    input
+    input,
+    attachments = []
   }: {
     editedUserMessageId: string
     id: string
     input: string
+    attachments?: UserAttachmentPart[]
   }) => {
     // Find the message whose nextMessageId points to the edited user message
     const prevMessage = messages.find((m) => m.nextMessageId === editedUserMessageId)
 
     if (!prevMessage) return
 
-    const userMessage = createUserMessage({ id, input, agentId })
+    const userMessage = createUserMessage({ id, input, attachments, agentId })
 
     // Update the parent message to point to the new user message, adding it as a branch
     const newMessages = messages.map((m) => {
