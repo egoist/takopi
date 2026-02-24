@@ -2,10 +2,11 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { getTakopiDataDir } from "./paths"
+import { createWriteQueue } from "./write-queue"
 
 const TELEGRAM_ACTIVE_CHATS_FILE = "telegram_active_chats.json"
 
-let writeQueue: Promise<void> = Promise.resolve()
+const withWriteQueue = createWriteQueue()
 
 type ActiveChatsRecord = Record<string, string>
 
@@ -59,15 +60,6 @@ async function readActiveChats(): Promise<ActiveChatsRecord> {
 async function writeActiveChats(value: ActiveChatsRecord): Promise<void> {
   await ensureDataDir()
   await writeFile(getActiveChatsFilePath(), JSON.stringify(value, null, 2), "utf-8")
-}
-
-async function withWriteQueue<T>(operation: () => Promise<T>): Promise<T> {
-  const resultPromise = writeQueue.then(operation, operation)
-  writeQueue = resultPromise.then(
-    () => undefined,
-    () => undefined
-  )
-  return resultPromise
 }
 
 export async function getTelegramActiveChatId(telegramChatId: number): Promise<string | null> {

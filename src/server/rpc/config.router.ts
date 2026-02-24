@@ -11,9 +11,7 @@ import {
 
 export const configRouter = {
   getConfig: base.handler(async () => {
-    const config = await getConfig()
-    syncTelegramBot(config)
-    return config
+    return getConfig()
   }),
 
   getTelegramPendingUsers: base.handler(async () => {

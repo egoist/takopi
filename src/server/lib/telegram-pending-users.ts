@@ -3,10 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { TelegramPendingUser } from "@/types/telegram"
 import { getTakopiDataDir } from "./paths"
+import { createWriteQueue } from "./write-queue"
 
 const TELEGRAM_PENDING_USERS_FILE = "telegram_pending_users.json"
 
-let writeQueue: Promise<void> = Promise.resolve()
+const withWriteQueue = createWriteQueue()
 
 function getPendingUsersFilePath() {
   return join(getTakopiDataDir(), TELEGRAM_PENDING_USERS_FILE)
@@ -66,15 +67,6 @@ async function readPendingUsers(): Promise<TelegramPendingUser[]> {
 async function writePendingUsers(users: TelegramPendingUser[]): Promise<void> {
   await ensureDataDir()
   await writeFile(getPendingUsersFilePath(), JSON.stringify(users, null, 2), "utf-8")
-}
-
-async function withWriteQueue<T>(operation: () => Promise<T>): Promise<T> {
-  const resultPromise = writeQueue.then(operation, operation)
-  writeQueue = resultPromise.then(
-    () => undefined,
-    () => undefined
-  )
-  return resultPromise
 }
 
 export async function getTelegramPendingUsers(): Promise<TelegramPendingUser[]> {

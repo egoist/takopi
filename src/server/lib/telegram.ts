@@ -5,7 +5,6 @@ import { Bot, GrammyError, type Context } from "grammy"
 import { createSpecialUserMessage, createUserMessage, getDisplayedMessages } from "@/lib/chat"
 import type { ChatMessage } from "@/types/chat"
 import type { AgentConfig, Config } from "@/types/config"
-import type { TelegramPendingUser } from "@/types/telegram"
 import { getChatMessages } from "./chat-storage"
 import { getConfig, saveConfig } from "./config"
 import { saveSessionMemory } from "./memory"
@@ -262,7 +261,13 @@ async function handleMessage(ctx: Context) {
   }
   const authStatus = await resolveTelegramAuthStatus(config, requester.id)
   if (!authStatus.approved) {
-    await ensureTelegramUserPending(requester)
+    await addTelegramPendingUser({
+      id: requester.id,
+      username: requester.username,
+      firstName: requester.first_name,
+      lastName: requester.last_name,
+      requestedAt: Date.now()
+    })
     await sendText(ctx, TELEGRAM_PENDING_APPROVAL_MESSAGE)
     return
   }
@@ -276,7 +281,7 @@ async function handleMessage(ctx: Context) {
 
   if (isCommand("new")) {
     await saveTelegramSessionMemory(localChatId, agent.id)
-    await setActiveTelegramChatId(ctx.chat.id, createTelegramChatId(ctx.chat.id))
+    await setStoredTelegramActiveChatId(ctx.chat.id, createTelegramChatId(ctx.chat.id))
     await sendText(ctx, "Started a new chat.")
     return
   }
@@ -486,20 +491,6 @@ async function autoApproveFirstTelegramUser(userId: number): Promise<boolean> {
   return approved
 }
 
-function mapPendingTelegramUser(user: NonNullable<Context["from"]>): TelegramPendingUser {
-  return {
-    id: user.id,
-    username: user.username,
-    firstName: user.first_name,
-    lastName: user.last_name,
-    requestedAt: Date.now()
-  }
-}
-
-async function ensureTelegramUserPending(user: NonNullable<Context["from"]>) {
-  await addTelegramPendingUser(mapPendingTelegramUser(user))
-}
-
 function createTelegramChatId(telegramChatId: number): string {
   return `telegram-${telegramChatId}-${generateId()}`
 }
@@ -513,10 +504,6 @@ async function getActiveTelegramChatId(telegramChatId: number): Promise<string> 
   const newChatId = createTelegramChatId(telegramChatId)
   await setStoredTelegramActiveChatId(telegramChatId, newChatId)
   return newChatId
-}
-
-async function setActiveTelegramChatId(telegramChatId: number, chatId: string) {
-  await setStoredTelegramActiveChatId(telegramChatId, chatId)
 }
 
 async function saveTelegramSessionMemory(chatId: string, agentId: string) {
