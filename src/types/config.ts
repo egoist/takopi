@@ -57,6 +57,13 @@ export interface BraveSearchConfig {
   apiKey?: string
 }
 
+export interface TelegramConfig {
+  botToken?: string
+  enabled?: boolean
+  agentId?: string
+  approvedUserIds?: number[]
+}
+
 export interface Config {
   providers: ProviderConfig[]
   agents: AgentConfig[]
@@ -68,4 +75,5 @@ export interface Config {
   webSearchCommand?: string
   webFetchProvider?: WebFetchProvider
   webFetchCommand?: string
+  telegram?: TelegramConfig
 }

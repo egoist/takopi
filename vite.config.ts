@@ -7,6 +7,11 @@ import babel from "vite-plugin-babel"
 
 export default defineConfig((ctx) => {
   return {
+    build: {
+      rollupOptions: {
+        input: ctx.isSsrBuild ? "./src/server/app.ts" : undefined
+      }
+    },
     optimizeDeps: {
       exclude: ["@tanstack/react-query"]
     },
@@ -15,6 +20,7 @@ export default defineConfig((ctx) => {
       reactRouter(),
       babel({
         filter: /\.[jt]sx?$/,
+        exclude: /node_modules/,
         babelConfig: {
           presets: ["@babel/preset-typescript"], // if you use TypeScript
           plugins: [["babel-plugin-react-compiler", {}]]

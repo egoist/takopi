@@ -1,15 +1,69 @@
 import { ModelSelect } from "@/components/model-select"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { useConfigQuery, useUpdateConfigMutation } from "@/lib/queries"
-import type { WebFetchProvider, WebSearchProvider } from "@/types/config"
+import { rpc, rpcClient } from "@/lib/rpc-client"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { TelegramConfig, WebFetchProvider, WebSearchProvider } from "@/types/config"
+import type { TelegramPendingUser } from "@/types/telegram"
 
 export default function GeneralSettings() {
   const { data: config } = useConfigQuery()
   const updateConfig = useUpdateConfigMutation()
+  const queryClient = useQueryClient()
+  const pendingUsersQuery = useQuery(rpc.config.getTelegramPendingUsers.queryOptions())
 
   const webSearchProvider = config?.webSearchProvider
+  const telegramConfig = config?.telegram
+  const telegramEnabled = telegramConfig?.enabled === true
+  const telegramPendingUsers = pendingUsersQuery.data ?? []
+  const telegramApprovedUserIds = telegramConfig?.approvedUserIds ?? []
+
+  const approveTelegramUserMutation = useMutation({
+    mutationFn: async (input: { userId: number }) => {
+      return rpcClient.config.approveTelegramUser(input)
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: rpc.config.getConfig.queryKey() }),
+        queryClient.invalidateQueries({ queryKey: rpc.config.getTelegramPendingUsers.queryKey() })
+      ])
+    }
+  })
+
+  const rejectTelegramUserMutation = useMutation({
+    mutationFn: async (input: { userId: number }) => {
+      return rpcClient.config.rejectTelegramUser(input)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: rpc.config.getTelegramPendingUsers.queryKey() })
+    }
+  })
+
+  const updateTelegramConfig = (updater: (current: TelegramConfig) => TelegramConfig) => {
+    const current = config?.telegram ?? {}
+    updateConfig.mutate({
+      telegram: updater(current)
+    })
+  }
+
+  const approveTelegramUser = (user: TelegramPendingUser) => {
+    approveTelegramUserMutation.mutate({ userId: user.id })
+  }
+
+  const rejectTelegramUser = (user: TelegramPendingUser) => {
+    rejectTelegramUserMutation.mutate({ userId: user.id })
+  }
+
+  const revokeTelegramUser = (userId: number) => {
+    updateTelegramConfig((current) => ({
+      ...current,
+      approvedUserIds: (current.approvedUserIds ?? []).filter((id) => id !== userId)
+    }))
+  }
 
   return (
     <div className="p-6 max-w-2xl">
@@ -187,6 +241,141 @@ export default function GeneralSettings() {
                 />
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label>Telegram Bot</Label>
+            <p className="text-sm text-muted-foreground">
+              Connect a Telegram bot token so you can chat with your Takopi agent in Telegram.
+            </p>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="telegram-enabled"
+                checked={telegramEnabled}
+                onCheckedChange={(checked) => {
+                  updateTelegramConfig((current) => ({
+                    ...current,
+                    enabled: checked === true
+                  }))
+                }}
+              />
+              <Label htmlFor="telegram-enabled">Enable Telegram integration</Label>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="telegram-bot-token">Bot Token</Label>
+              <Input
+                id="telegram-bot-token"
+                isPassword
+                value={telegramConfig?.botToken ?? ""}
+                onChange={(e) => {
+                  updateTelegramConfig((current) => ({
+                    ...current,
+                    botToken: e.target.value
+                  }))
+                }}
+                placeholder="123456789:AA..."
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="telegram-agent">Agent</Label>
+              <div>
+                <NativeSelect
+                  id="telegram-agent"
+                  value={telegramConfig?.agentId ?? ""}
+                  onChange={(e) => {
+                    const agentId = e.target.value || undefined
+                    updateTelegramConfig((current) => ({
+                      ...current,
+                      agentId
+                    }))
+                  }}
+                >
+                  <NativeSelectOption value="">Use app default agent</NativeSelectOption>
+                  {(config?.agents || []).map((agent) => (
+                    <NativeSelectOption key={agent.id} value={agent.id}>
+                      {agent.name || agent.id}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Commands: <code className="text-xs bg-muted px-1 py-0.5 rounded">/new</code> to
+                reset chat.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Pending Approvals</Label>
+              {pendingUsersQuery.isFetching && telegramPendingUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Loading pending users...</p>
+              ) : telegramPendingUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No pending Telegram users.</p>
+              ) : (
+                <div className="space-y-2">
+                  {telegramPendingUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="rounded-md border bg-card px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {user.firstName || user.lastName
+                            ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
+                            : "Unknown User"}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          id: {user.id}
+                          {user.username ? ` • @${user.username}` : ""}
+                          {` • requested ${new Date(user.requestedAt).toLocaleString()}`}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          disabled={approveTelegramUserMutation.isPending}
+                          onClick={() => approveTelegramUser(user)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={rejectTelegramUserMutation.isPending}
+                          onClick={() => rejectTelegramUser(user)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Approved Users</Label>
+              {telegramApprovedUserIds.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No approved Telegram users yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {telegramApprovedUserIds.map((userId) => (
+                    <div
+                      key={userId}
+                      className="rounded-md border bg-card px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <p className="text-sm min-w-0 truncate">id: {userId}</p>
+                      <Button size="sm" variant="outline" onClick={() => revokeTelegramUser(userId)}>
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
