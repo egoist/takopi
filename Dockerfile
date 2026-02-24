@@ -34,6 +34,7 @@ RUN pnpm install --prod --frozen-lockfile
 
 # Copy built application from builder stage
 COPY --from=builder /app/build ./build
+COPY --from=builder /app/server.js ./server.js
 
 # Expose the port (adjust if your app uses a different port)
 EXPOSE 3000

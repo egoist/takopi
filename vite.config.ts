@@ -9,7 +9,7 @@ export default defineConfig((ctx) => {
   return {
     build: {
       rollupOptions: {
-        input: ctx.isSsrBuild ? "./src/server/app.ts" : undefined
+        input: ctx.isSsrBuild ? "./src/server/index.ts" : undefined
       }
     },
     optimizeDeps: {
