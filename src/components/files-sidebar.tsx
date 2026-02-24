@@ -1,5 +1,5 @@
 import { rpc, rpcClient } from "@/lib/rpc-client"
-import { ChevronRight, File, Folder } from "lucide-react"
+import { File, Folder, FolderOpen, Loader2 } from "lucide-react"
 import { useTree } from "@headless-tree/react"
 import { asyncDataLoaderFeature } from "@headless-tree/core"
 import { useEffect, useRef, useState } from "react"
@@ -236,7 +236,7 @@ function HighlightedCode({ content, filePath }: { content: string; filePath: str
   })
 
   return (
-    <pre className="text-xs overflow-auto whitespace-pre-wrap rounded-md border p-3 bg-secondary/30">
+    <pre className="text-xs overflow-auto whitespace-pre-wrap rounded-md p-3 bg-zinc-800 text-white">
       {html ? <code dangerouslySetInnerHTML={{ __html: html }} /> : <code>{content}</code>}
     </pre>
   )
@@ -256,21 +256,7 @@ function FileTree({ agentId }: { agentId: string }) {
       size: 0,
       modifiedAt: ""
     }),
-    initialState: {
-      expandedItems: ["root"]
-    },
-    onLoadedChildren: (itemId, childrenIds) => {
-      if (itemId === "root") {
-        // Auto-expand top-level folders except noisy ones
-        for (const childId of childrenIds) {
-          const item = tree.getItemInstance(childId)
-          const data = item.getItemData()
-          if (data?.isDirectory && !COLLAPSED_BY_DEFAULT.has(data.name)) {
-            item.expand()
-          }
-        }
-      }
-    },
+
     dataLoader: {
       getItem: async (itemId) => {
         if (itemId === "root") {
@@ -294,6 +280,9 @@ function FileTree({ agentId }: { agentId: string }) {
       },
       getChildrenWithData: async (itemId) => {
         const path = itemId === "root" ? undefined : itemId
+        // if (itemId !== "root") {
+        //   await new Promise((resolve) => setTimeout(resolve, 30000)) // Simulate loading delay
+        // }
         const files = await rpcClient.chat.getWorkspaceFiles({
           agentId,
           path
@@ -340,30 +329,22 @@ function FileTree({ agentId }: { agentId: string }) {
           if (item.getId() === "root") return null
 
           const itemData = item.getItemData()
-          if (!itemData || item.isLoading()) {
-            return (
-              <div
-                key={item.getId()}
-                className="px-3 py-1.5 text-sm text-muted-foreground"
-                style={{ paddingLeft: `${item.getItemMeta().level * 12}px` }}
-              >
-                Loading...
-              </div>
-            )
-          }
-
+          const isLoading = item.isLoading()
           const props = item.getProps()
           return (
             <button
               {...props}
               key={item.getId()}
+              disabled={!itemData || isLoading}
               className="w-full px-3 py-1.5 rounded-md text-sm hover:bg-secondary/50 transition-colors text-left"
-              style={{ paddingLeft: `${item.getItemMeta().level * 12}px` }}
+              style={{ paddingLeft: `${(item.getItemMeta().level + 1) * 12}px` }}
               onClick={(e) => {
-                if (item.isFolder() && !item.isExpanded() && item.hasLoadedData()) {
+                if (!itemData || isLoading) return
+                const wasExpanded = item.isExpanded()
+                props.onClick?.(e)
+                if (item.isFolder() && !wasExpanded && item.hasLoadedData()) {
                   item.invalidateChildrenIds(true)
                 }
-                props.onClick?.(e)
                 if (!item.isFolder()) {
                   if (isTextFile(itemData.name)) {
                     setSelectedFile(itemData.path)
@@ -377,23 +358,20 @@ function FileTree({ agentId }: { agentId: string }) {
               }}
             >
               <div className="flex items-center gap-2">
-                {item.isFolder() ? (
-                  <ChevronRight
-                    className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${
-                      item.isExpanded() ? "rotate-90" : ""
-                    }`}
-                  />
-                ) : (
-                  <span className="w-3.5" />
-                )}
-                {item.isFolder() ? (
-                  <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 text-muted-foreground shrink-0 animate-spin" />
+                ) : item.isFolder() ? (
+                  item.isExpanded() ? (
+                    <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )
                 ) : (
                   <File className="h-4 w-4 text-muted-foreground shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="truncate font-medium">{item.getItemName()}</div>
-                  {!item.isFolder() && (
+                  {!item.isFolder() && itemData && (
                     <div className="text-xs text-muted-foreground">
                       {formatFileSize(itemData.size)}
                     </div>
