@@ -59,7 +59,25 @@ export async function getConfig(): Promise<Config> {
       braveSearch: config.braveSearch,
       webSearchCommand: config.webSearchCommand,
       webFetchProvider: config.webFetchProvider,
-      webFetchCommand: config.webFetchCommand
+      webFetchCommand: config.webFetchCommand,
+      telegram:
+        config.telegram && typeof config.telegram === "object"
+          ? {
+              botToken:
+                typeof config.telegram.botToken === "string"
+                  ? config.telegram.botToken
+                  : undefined,
+              enabled:
+                typeof config.telegram.enabled === "boolean" ? config.telegram.enabled : undefined,
+              agentId:
+                typeof config.telegram.agentId === "string" ? config.telegram.agentId : undefined,
+              approvedUserIds: Array.isArray(config.telegram.approvedUserIds)
+                ? config.telegram.approvedUserIds.filter((value: unknown): value is number => {
+                    return typeof value === "number"
+                  })
+                : undefined
+            }
+          : undefined
     }
   } catch (error) {
     console.error("Failed to read config:", error)
